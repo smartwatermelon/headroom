@@ -49,7 +49,12 @@ def _utc_now() -> datetime:
 
 
 def _to_utc_iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        dt.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -117,7 +122,11 @@ def _resolve_litellm_model(model: str) -> str:
         if model.startswith(pattern):
             candidate = f"{prefix}{model}"
             try:
-                litellm.cost_per_token(model=candidate, prompt_tokens=1, completion_tokens=0)
+                litellm.cost_per_token(
+                    model=candidate,
+                    prompt_tokens=1,
+                    completion_tokens=0,
+                )
                 return candidate
             except Exception:
                 break
@@ -170,8 +179,14 @@ def _estimate_input_cost_usd(
             return 0.0
 
         if cache_read + cache_write + uncached > 0:
-            cache_read_cost = info.get("cache_read_input_token_cost", input_cost_per_token)
-            cache_write_cost = info.get("cache_creation_input_token_cost", input_cost_per_token)
+            cache_read_cost = info.get(
+                "cache_read_input_token_cost",
+                input_cost_per_token,
+            )
+            cache_write_cost = info.get(
+                "cache_creation_input_token_cost",
+                input_cost_per_token,
+            )
             return (
                 float(cache_read) * float(cache_read_cost)
                 + float(cache_write) * float(cache_write_cost)
@@ -247,7 +262,10 @@ def _normalize_display_session(entry: Any) -> dict[str, Any]:
     tokens_saved = _coerce_int(entry.get("tokens_saved"))
     total_input_tokens = _coerce_int(entry.get("total_input_tokens"))
     total_before = tokens_saved + total_input_tokens
-    savings_percent = round((tokens_saved / total_before * 100) if total_before > 0 else 0.0, 2)
+    savings_percent = round(
+        (tokens_saved / total_before * 100) if total_before > 0 else 0.0,
+        2,
+    )
 
     return {
         "requests": _coerce_int(entry.get("requests")),
@@ -257,7 +275,10 @@ def _normalize_display_session(entry: Any) -> dict[str, Any]:
             6,
         ),
         "total_input_tokens": total_input_tokens,
-        "total_input_cost_usd": round(_coerce_float(entry.get("total_input_cost_usd")), 6),
+        "total_input_cost_usd": round(
+            _coerce_float(entry.get("total_input_cost_usd")),
+            6,
+        ),
         "savings_percent": savings_percent,
         "started_at": _to_utc_iso(started_at),
         "last_activity_at": _to_utc_iso(last_activity_at),
@@ -272,13 +293,18 @@ class SavingsTracker:
         path: str | None = None,
         max_history_points: int = DEFAULT_MAX_HISTORY_POINTS,
         max_history_age_days: int = DEFAULT_MAX_HISTORY_AGE_DAYS,
-        display_session_inactivity_minutes: int = DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES,
+        display_session_inactivity_minutes: int = (
+            DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES
+        ),
     ) -> None:
         self._path = Path(path or get_default_savings_storage_path())
         self._max_history_points = max_history_points
         self._max_history_age_days = max_history_age_days
         self._display_session_inactivity_minutes = max(
-            _coerce_int(display_session_inactivity_minutes, DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES),
+            _coerce_int(
+                display_session_inactivity_minutes,
+                DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES,
+            ),
             1,
         )
         self._lock = threading.Lock()
@@ -446,7 +472,9 @@ class SavingsTracker:
             )
             total_before = session["tokens_saved"] + session["total_input_tokens"]
             session["savings_percent"] = round(
-                (session["tokens_saved"] / total_before * 100) if total_before > 0 else 0.0,
+                (session["tokens_saved"] / total_before * 100)
+                if total_before > 0
+                else 0.0,
                 2,
             )
             session["last_activity_at"] = _to_utc_iso(timestamp_dt)
@@ -556,7 +584,9 @@ class SavingsTracker:
                 "lifetime": dict(self._state["lifetime"]),
                 "display_session": self._display_session_snapshot_locked(),
                 "display_session_policy": {
-                    "rollover_inactivity_minutes": self._display_session_inactivity_minutes,
+                    "rollover_inactivity_minutes": (
+                        self._display_session_inactivity_minutes
+                    ),
                 },
                 "history": history,
                 "retention": {
@@ -615,13 +645,20 @@ class SavingsTracker:
         if isinstance(lifetime_raw, dict):
             lifetime_requests = _coerce_int(lifetime_raw.get("requests"))
             lifetime_tokens_saved = _coerce_int(lifetime_raw.get("tokens_saved"))
-            lifetime_savings_usd = _coerce_float(lifetime_raw.get("compression_savings_usd"))
+            lifetime_savings_usd = _coerce_float(
+                lifetime_raw.get("compression_savings_usd")
+            )
             lifetime_input_tokens = _coerce_int(lifetime_raw.get("total_input_tokens"))
-            lifetime_input_cost_usd = _coerce_float(lifetime_raw.get("total_input_cost_usd"))
+            lifetime_input_cost_usd = _coerce_float(
+                lifetime_raw.get("total_input_cost_usd")
+            )
 
         if normalized_history:
             last = normalized_history[-1]
-            lifetime_tokens_saved = max(lifetime_tokens_saved, last["total_tokens_saved"])
+            lifetime_tokens_saved = max(
+                lifetime_tokens_saved,
+                last["total_tokens_saved"],
+            )
             lifetime_savings_usd = max(
                 lifetime_savings_usd,
                 _coerce_float(last["compression_savings_usd"]),
@@ -649,7 +686,9 @@ class SavingsTracker:
         }
 
         if normalized_history:
-            reference_time = _parse_timestamp(normalized_history[-1]["timestamp"]) or _utc_now()
+            reference_time = (
+                _parse_timestamp(normalized_history[-1]["timestamp"]) or _utc_now()
+            )
             original_state = self._state if hasattr(self, "_state") else None
             self._state = state
             try:
@@ -667,7 +706,9 @@ class SavingsTracker:
             return
 
         if self._max_history_age_days > 0:
-            cutoff = (reference_time or _utc_now()) - timedelta(days=self._max_history_age_days)
+            cutoff = (reference_time or _utc_now()) - timedelta(
+                days=self._max_history_age_days
+            )
             filtered = [
                 item
                 for item in history
@@ -754,7 +795,11 @@ class SavingsTracker:
             minutes=self._display_session_inactivity_minutes
         )
 
-    def _build_rollup(self, history: list[dict[str, Any]], bucket: str) -> list[dict[str, Any]]:
+    def _build_rollup(
+        self,
+        history: list[dict[str, Any]],
+        bucket: str,
+    ) -> list[dict[str, Any]]:
         if not history:
             return []
 
