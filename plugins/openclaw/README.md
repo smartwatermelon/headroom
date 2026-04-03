@@ -6,8 +6,10 @@ Context compression plugin for [OpenClaw](https://github.com/openclaw/openclaw).
 
 ```bash
 pip install "headroom-ai[proxy]"
-openclaw plugins install headroom-ai/openclaw
+openclaw plugins install --dangerously-force-unsafe-install headroom-ai/openclaw
 ```
+
+This plugin auto-starts `headroom proxy` when needed. OpenClaw treats process-launching plugins as unsafe by default, so `--dangerously-force-unsafe-install` is required.
 
 ## Configure
 
@@ -29,11 +31,11 @@ openclaw plugins install headroom-ai/openclaw
 }
 ```
 
-`proxyUrl` is required and must be localhost (`127.0.0.1` or `localhost`). The plugin never starts processes and only connects to the configured local proxy.
+`proxyUrl` must be localhost (`127.0.0.1` or `localhost`). If the proxy is not running, the plugin will try to start it with `headroom proxy --host ... --port ...`.
 
 ## Required Proxy Setup
 
-Run Headroom proxy yourself before launching OpenClaw.
+Optional: run Headroom proxy yourself before launching OpenClaw.
 
 Python install:
 
@@ -65,6 +67,8 @@ Compression is lossless via CCR (Compress-Cache-Retrieve): originals are stored 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `proxyUrl` | required | URL of an already running Headroom proxy (`http://127.0.0.1:<port>` or `http://localhost:<port>`) |
+| `autoStart` | `true` | Auto-start `headroom proxy` if not already running |
+| `startupTimeoutMs` | `20000` | Time to wait for auto-started proxy to become healthy |
 
 ## Comparison with lossless-claw
 

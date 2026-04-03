@@ -2,13 +2,16 @@
  * Manages connectivity to an externally managed Headroom proxy.
  *
  * Security model:
- * - No process execution
+ * - Optional local process execution to auto-start Headroom proxy
  * - No environment variable access
  * - Localhost-only network access (127.0.0.1 / localhost)
  */
+import { spawn } from "node:child_process";
 
 export interface ProxyManagerConfig {
   proxyUrl?: string;
+  autoStart?: boolean;
+  startupTimeoutMs?: number;
 }
 
 export interface ProxyManagerLogger {
@@ -67,6 +70,24 @@ export class ProxyManager {
       );
     }
 
+    if (this.config.autoStart !== false) {
+      this.logger.info(`No proxy detected at ${url}; attempting to auto-start Headroom proxy...`);
+      await this.startHeadroomProxy(url);
+
+      const startedProbe = await waitForHeadroomProxy(
+        url,
+        this.config.startupTimeoutMs ?? 20_000,
+      );
+      if (startedProbe.reachable && startedProbe.isHeadroom) {
+        this.proxyUrl = url;
+        this.logger.info(`Headroom proxy started and reachable at ${url}`);
+        return url;
+      }
+      throw new Error(
+        `Attempted to start Headroom proxy, but it was not reachable at ${url} (${startedProbe.reason ?? "unknown"}).`,
+      );
+    }
+
     throw new Error(`Headroom proxy not reachable at ${url}. Ensure the proxy is running first.`);
   }
 
@@ -82,6 +103,24 @@ export class ProxyManager {
   }
 
   // --- Internal ---
+
+  private async startHeadroomProxy(proxyUrl: string): Promise<void> {
+    const parsed = new URL(proxyUrl);
+    const host = parsed.hostname;
+    const port = parsed.port || "80";
+
+    try {
+      const child = spawn("headroom", ["proxy", "--host", host, "--port", port], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+    } catch (error) {
+      throw new Error(
+        `Failed to spawn headroom proxy command. Ensure "headroom" is installed and on PATH. (${String(error)})`,
+      );
+    }
+  }
 }
 
 export function normalizeAndValidateProxyUrl(proxyUrl: string): string {
@@ -142,4 +181,16 @@ export async function probeHeadroomProxy(proxyUrl: string): Promise<ProxyProbeRe
       reason: "retrieve stats endpoint unavailable",
     };
   }
+}
+
+async function waitForHeadroomProxy(proxyUrl: string, timeoutMs: number): Promise<ProxyProbeResult> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await probeHeadroomProxy(proxyUrl);
+    if (result.reachable && result.isHeadroom) {
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return probeHeadroomProxy(proxyUrl);
 }

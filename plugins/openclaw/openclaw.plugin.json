@@ -16,6 +16,16 @@
       "proxyUrl": {
         "type": "string",
         "pattern": "^http:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?$"
+      },
+      "autoStart": {
+        "type": "boolean",
+        "default": true
+      },
+      "startupTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000,
+        "default": 20000
       }
     }
   },
