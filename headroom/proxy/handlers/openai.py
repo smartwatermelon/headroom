@@ -497,7 +497,7 @@ class OpenAIHandlerMixin:
                     output_tokens = usage.get("completion_tokens", 0)
                     # OpenAI returns cached_tokens in prompt_tokens_details
                     # These are charged at 50% of the input price
-                    prompt_details = usage.get("prompt_tokens_details", {})
+                    prompt_details = usage.get("prompt_tokens_details") or {}
                     cache_read_tokens = prompt_details.get("cached_tokens", 0)
                 except (KeyError, TypeError, AttributeError) as e:
                     logger.debug(

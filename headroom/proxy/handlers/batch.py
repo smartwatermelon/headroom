@@ -217,9 +217,10 @@ class BatchHandlerMixin:
                 logger.warning(
                     f"[{request_id}] Optimization failed for Google batch request {idx}: {e}"
                 )
-                # Pass through unchanged on failure
+                # Pass through unchanged on failure — count original as optimized
                 compressed_requests.append(batch_req)
-                total_optimized_tokens += original_tokens
+                # original_tokens may be unbound if pipeline failed before producing result
+                # Just skip the token accounting for this failed request
 
         # Update body with compressed requests
         body["batch"]["input_config"]["requests"]["requests"] = compressed_requests
