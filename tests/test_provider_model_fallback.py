@@ -151,15 +151,13 @@ class TestAnthropicConfigLoading:
         """Test loading config from file path in env var."""
         config = {"context_limits": {"file-model": 400000}}
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(config, f)
-            f.flush()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "model_limits.json"
+            config_path.write_text(json.dumps(config))
 
-            with patch.dict(os.environ, {"HEADROOM_MODEL_LIMITS": f.name}):
+            with patch.dict(os.environ, {"HEADROOM_MODEL_LIMITS": str(config_path)}):
                 loaded = anthropic_load_config()
                 assert loaded["context_limits"]["file-model"] == 400000
-
-            os.unlink(f.name)
 
     def test_load_from_config_file(self):
         """Test loading from ~/.headroom/models.json."""
@@ -291,15 +289,13 @@ class TestOpenAIConfigLoading:
         """Test loading pricing from config."""
         config = {"openai": {"pricing": {"test-model": [5.0, 15.0]}}}
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(config, f)
-            f.flush()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "model_limits.json"
+            config_path.write_text(json.dumps(config))
 
-            with patch.dict(os.environ, {"HEADROOM_MODEL_LIMITS": f.name}):
+            with patch.dict(os.environ, {"HEADROOM_MODEL_LIMITS": str(config_path)}):
                 loaded = openai_load_config()
                 assert loaded["pricing"]["test-model"] == [5.0, 15.0]
-
-            os.unlink(f.name)
 
 
 class TestCrossProviderConsistency:
@@ -328,10 +324,8 @@ class TestCrossProviderConsistency:
         anthropic.get_context_limit("claude-future-model-xyz")
         openai.get_context_limit("gpt-future-model-xyz")
 
-    def test_both_providers_warn_for_unknown_models(self, caplog):
+    def test_both_providers_warn_for_unknown_models(self):
         """Test that both providers warn for unknown models."""
-        import logging
-
         # Clear warning caches
         from headroom.providers import anthropic as anthropic_module
         from headroom.providers import openai as openai_module
@@ -339,12 +333,17 @@ class TestCrossProviderConsistency:
         anthropic_module._UNKNOWN_MODEL_WARNINGS.clear()
         openai_module._UNKNOWN_MODEL_WARNINGS.clear()
 
-        with caplog.at_level(logging.WARNING):
+        with (
+            patch.object(anthropic_module.logger, "warning") as anthropic_warning,
+            patch.object(openai_module.logger, "warning") as openai_warning,
+        ):
             anthropic = AnthropicProvider()
             anthropic.get_context_limit("claude-test-unknown-model")
 
             openai = OpenAIProvider()
             openai.get_context_limit("gpt-test-unknown-model")
 
-        assert "claude-test-unknown-model" in caplog.text
-        assert "gpt-test-unknown-model" in caplog.text
+        anthropic_warning.assert_called_once()
+        openai_warning.assert_called_once()
+        assert "claude-test-unknown-model" in anthropic_warning.call_args.args[0]
+        assert "gpt-test-unknown-model" in openai_warning.call_args.args[0]

@@ -11,7 +11,7 @@ import logging
 import os
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -236,10 +236,10 @@ def decode_project_key(project_key: str) -> str:
 
 def _parse_timestamp(value: str | None) -> datetime:
     if not value:
-        return datetime.min.replace(tzinfo=UTC)
+        return datetime.min.replace(tzinfo=timezone.utc)
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
-    return datetime.fromisoformat(value).astimezone(UTC)
+    return datetime.fromisoformat(value).astimezone(timezone.utc)
 
 
 def _canonical_block_key(block: Any) -> str:

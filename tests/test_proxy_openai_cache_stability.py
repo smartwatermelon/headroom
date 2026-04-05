@@ -49,8 +49,8 @@ def test_openai_cache_mode_freezes_previous_turns() -> None:
         proxy.config.mode = "cache"
 
         fake_tracker = _FakePrefixTracker(frozen_count=0)
-        proxy.session_tracker_store.compute_session_id = (
-            lambda request, model, messages: "stable-session"
+        proxy.session_tracker_store.compute_session_id = lambda request, model, messages: (
+            "stable-session"
         )
         proxy.session_tracker_store.get_or_create = lambda session_id, provider: fake_tracker
 
@@ -110,8 +110,8 @@ def test_openai_cache_mode_restores_mutated_frozen_prefix() -> None:
         proxy.config.mode = "cache"
 
         fake_tracker = _FakePrefixTracker(frozen_count=0)
-        proxy.session_tracker_store.compute_session_id = (
-            lambda request, model, messages: "stable-session"
+        proxy.session_tracker_store.compute_session_id = lambda request, model, messages: (
+            "stable-session"
         )
         proxy.session_tracker_store.get_or_create = lambda session_id, provider: fake_tracker
 
