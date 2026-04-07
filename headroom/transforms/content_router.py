@@ -74,6 +74,7 @@ def _detect_content(content: str) -> DetectionResult:
             "json": ContentType.JSON_ARRAY,
             "code": ContentType.SOURCE_CODE,
             "log": ContentType.BUILD_OUTPUT,
+            "diff": ContentType.GIT_DIFF,
             "markdown": ContentType.PLAIN_TEXT,
             "text": ContentType.PLAIN_TEXT,
             "unknown": ContentType.PLAIN_TEXT,

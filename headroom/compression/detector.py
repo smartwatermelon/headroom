@@ -32,6 +32,7 @@ class ContentType(Enum):
     JSON = "json"
     CODE = "code"
     LOG = "log"
+    DIFF = "diff"
     MARKDOWN = "markdown"
     TEXT = "text"
     UNKNOWN = "unknown"
@@ -308,6 +309,10 @@ class MagikaDetector:
         # Check markdown/docs
         if label_lower in _MARKDOWN_LABELS:
             return ContentType.MARKDOWN, None
+
+        # Diff format (Magika detects this with score=1.0)
+        if label_lower == "diff":
+            return ContentType.DIFF, None
 
         # Text types
         if label_lower in ("txt", "text", "ascii", "utf8", "empty"):
