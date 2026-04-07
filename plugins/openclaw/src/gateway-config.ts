@@ -3,11 +3,41 @@
 export const DEFAULT_GATEWAY_PROVIDER_IDS = ["openai-codex"] as const;
 
 export function resolveGatewayProviderIds(config: Record<string, unknown> | undefined): string[] {
+  const configuredProviderIds = normalizeGatewayProviderIds(config?.gatewayProviderIds);
+  if (configuredProviderIds.length > 0) {
+    return configuredProviderIds;
+  }
+
   if (config?.routeCodexViaProxy === false) {
     return [];
   }
 
   return [...DEFAULT_GATEWAY_PROVIDER_IDS];
+}
+
+function normalizeGatewayProviderIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+
+    const providerId = entry.trim();
+    if (!providerId || seen.has(providerId)) {
+      continue;
+    }
+
+    seen.add(providerId);
+    normalized.push(providerId);
+  }
+
+  return normalized;
 }
 
 export function applyGatewayProviderBaseUrls<T>(

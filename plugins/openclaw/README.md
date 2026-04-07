@@ -85,6 +85,25 @@ By default, the plugin also rewrites the built-in `openai-codex` provider base U
 
 This does not replace Headroom's existing Codex routing rules. The proxy already decides between `api.openai.com` and `chatgpt.com/backend-api/codex/responses` based on ChatGPT auth. The plugin change only points OpenClaw's `openai-codex` provider at the active proxy and preserves the rest of the provider config.
 
+You can also route additional provider ids such as `anthropic`, `copilot`, or `minimax-portal` through the same proxy:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "headroom": {
+        "enabled": true,
+        "config": {
+          "gatewayProviderIds": ["openai-codex", "anthropic", "copilot", "minimax-portal"]
+        }
+      }
+    }
+  }
+}
+```
+
+When `gatewayProviderIds` is set, it becomes the exact list the plugin rewrites.
+
 If you need to disable that behavior:
 
 ```json
@@ -165,6 +184,7 @@ Compression is lossless via CCR (Compress-Cache-Retrieve): originals are stored 
 | `autoStart` | `true` | Auto-start a local `headroom proxy` if not already running (local URLs only; ignored for remote proxies) |
 | `startupTimeoutMs` | `20000` | Time to wait for auto-started proxy to become healthy |
 | `routeCodexViaProxy` | `true` | Rewrite OpenClaw's built-in `openai-codex` provider to use the active Headroom proxy so upstream Codex requests pass through Headroom. |
+| `gatewayProviderIds` | `[]` | Optional explicit list of OpenClaw provider ids to route through the active Headroom proxy. When set, this overrides the default `openai-codex` routing list. |
 
 ## Comparison with lossless-claw
 

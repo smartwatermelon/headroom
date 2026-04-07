@@ -10,6 +10,22 @@ describe("resolveGatewayProviderIds", () => {
     expect(resolveGatewayProviderIds(undefined)).toEqual(["openai-codex"]);
   });
 
+  it("allows an explicit provider list to override the default", () => {
+    expect(
+      resolveGatewayProviderIds({
+        gatewayProviderIds: ["anthropic", "copilot", "minimax-portal"],
+      }),
+    ).toEqual(["anthropic", "copilot", "minimax-portal"]);
+  });
+
+  it("normalizes explicit provider ids", () => {
+    expect(
+      resolveGatewayProviderIds({
+        gatewayProviderIds: [" anthropic ", "", "copilot", "anthropic"],
+      }),
+    ).toEqual(["anthropic", "copilot"]);
+  });
+
   it("allows routing to be disabled", () => {
     expect(resolveGatewayProviderIds({ routeCodexViaProxy: false })).toEqual([]);
   });
@@ -23,6 +39,30 @@ describe("applyGatewayProviderBaseUrls", () => {
     expect((result.config as any).models.providers["openai-codex"]).toEqual({
       baseUrl: "http://127.0.0.1:8787",
       models: [],
+    });
+  });
+
+  it("creates provider configs for multiple configured provider ids", () => {
+    const result = applyGatewayProviderBaseUrls(
+      {},
+      "http://127.0.0.1:8787",
+      ["anthropic", "copilot", "minimax-portal"],
+    );
+
+    expect(result.changed).toBe(true);
+    expect((result.config as any).models.providers).toEqual({
+      anthropic: {
+        baseUrl: "http://127.0.0.1:8787",
+        models: [],
+      },
+      copilot: {
+        baseUrl: "http://127.0.0.1:8787",
+        models: [],
+      },
+      "minimax-portal": {
+        baseUrl: "http://127.0.0.1:8787",
+        models: [],
+      },
     });
   });
 
