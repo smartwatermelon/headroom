@@ -40,23 +40,8 @@ class AnthropicHandlerMixin:
             canonical = str(tool)
         return (name, canonical)
 
-    @staticmethod
-    def _extract_anthropic_cache_ttl_metrics(usage: dict[str, Any] | None) -> tuple[int, int]:
-        """Extract observed Anthropic cache-write TTL bucket usage.
-
-        Returns (cache_write_5m_tokens, cache_write_1h_tokens) from provider usage.
-        These are observational metrics only; they do not imply configured or
-        remaining TTL.
-        """
-        if not isinstance(usage, dict):
-            return (0, 0)
-        cache_creation = usage.get("cache_creation")
-        if not isinstance(cache_creation, dict):
-            return (0, 0)
-        return (
-            int(cache_creation.get("ephemeral_5m_input_tokens", 0) or 0),
-            int(cache_creation.get("ephemeral_1h_input_tokens", 0) or 0),
-        )
+    # _extract_anthropic_cache_ttl_metrics is defined in StreamingMixin
+    # (which takes precedence via MRO). Do not duplicate here.
 
     @classmethod
     def _sort_tools_deterministically(
@@ -1580,6 +1565,7 @@ class AnthropicHandlerMixin:
                 continue
 
             # Apply optimization
+            original_tokens = 0  # Initialize before try to prevent UnboundLocalError
             try:
                 context_limit = self.anthropic_provider.get_context_limit(model)
                 frozen_message_count = (

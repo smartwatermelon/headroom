@@ -173,8 +173,7 @@ class StreamingMixin:
                             )
                             usage_found["cache_creation_ephemeral_5m_input_tokens"] = cache_write_5m
                             usage_found["cache_creation_ephemeral_1h_input_tokens"] = cache_write_1h
-                            # INFO logging for cache token tracking (temporary for debugging)
-                            logger.info(
+                            logger.debug(
                                 f"[CACHE] Anthropic usage: input={usage_found.get('input_tokens')}, "
                                 f"cache_read={usage_found.get('cache_read_input_tokens')}, "
                                 f"cache_write={usage_found.get('cache_creation_input_tokens')}"

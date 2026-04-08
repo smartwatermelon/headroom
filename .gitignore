@@ -4,6 +4,12 @@ scripts/
 # Swift SDK (separate repo)
 swift/
 
+# Audit/scan outputs (contain security findings — never commit)
+bandit_result.txt
+pip_audit_result.txt
+ruff_result.txt
+reqs.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
