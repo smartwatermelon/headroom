@@ -6,6 +6,15 @@ const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
   "openai-codex": "https://chatgpt.com/backend-api",
 };
 
+const GATEWAY_PROVIDER_ID_ALIASES: Readonly<Record<string, string>> = {
+  codex: "openai-codex",
+  claude: "anthropic",
+  copilot: "github-copilot",
+  gemini: "google",
+};
+
+const EXPLICIT_BASE_URL_REQUIRED_PROVIDER_IDS = new Set<string>(["github-copilot"]);
+
 export function resolveGatewayProviderIds(config: Record<string, unknown> | undefined): string[] {
   const configuredProviderIds = normalizeGatewayProviderIds(config?.gatewayProviderIds);
   if (configuredProviderIds.length > 0) {
@@ -32,7 +41,8 @@ function normalizeGatewayProviderIds(value: unknown): string[] {
       continue;
     }
 
-    const providerId = entry.trim();
+    const rawProviderId = entry.trim();
+    const providerId = GATEWAY_PROVIDER_ID_ALIASES[rawProviderId.toLowerCase()] ?? rawProviderId;
     if (!providerId || seen.has(providerId)) {
       continue;
     }
@@ -74,13 +84,22 @@ export function applyGatewayProviderBaseUrlsInPlace(
         ? currentValue
         : {};
     const nextConfig = { ...currentConfig };
+    const currentBaseUrl =
+      typeof nextConfig.baseUrl === "string" && nextConfig.baseUrl.trim().length > 0
+        ? nextConfig.baseUrl
+        : undefined;
+    const defaultBaseUrl = DEFAULT_PROVIDER_BASE_URLS[providerId];
+    if (
+      !currentBaseUrl &&
+      !defaultBaseUrl &&
+      EXPLICIT_BASE_URL_REQUIRED_PROVIDER_IDS.has(providerId)
+    ) {
+      continue;
+    }
     const nextBaseUrl = routeBaseUrlThroughProxy({
       providerId,
       proxyUrl,
-      currentBaseUrl:
-        typeof nextConfig.baseUrl === "string" && nextConfig.baseUrl.trim().length > 0
-          ? nextConfig.baseUrl
-          : undefined,
+      currentBaseUrl,
     });
 
     if (!Array.isArray(nextConfig.models)) {

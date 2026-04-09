@@ -55,7 +55,7 @@ describe("headroomPlugin runtime routing", () => {
           entries: {
             headroom: {
               config: {
-                gatewayProviderIds: ["openai-codex", "anthropic", "github-copilot"],
+                gatewayProviderIds: ["codex", "claude", "copilot", "gemini", "openrouter"],
               },
             },
           },
@@ -64,6 +64,16 @@ describe("headroomPlugin runtime routing", () => {
           providers: {
             anthropic: {
               api: "anthropic-messages",
+              baseUrl: "https://api.anthropic.com",
+            },
+            "github-copilot": {
+              baseUrl: "https://api.githubcopilot.com/v1",
+            },
+            google: {
+              baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            },
+            openrouter: {
+              baseUrl: "https://openrouter.ai/api/v1",
             },
           },
         },
@@ -108,7 +118,15 @@ describe("headroomPlugin runtime routing", () => {
       models: [],
     });
     expect(api.config.models.providers["github-copilot"]).toEqual({
-      baseUrl: "http://127.0.0.1:8787",
+      baseUrl: "http://127.0.0.1:8787/v1",
+      models: [],
+    });
+    expect(api.config.models.providers.google).toEqual({
+      baseUrl: "http://127.0.0.1:8787/v1beta",
+      models: [],
+    });
+    expect(api.config.models.providers.openrouter).toEqual({
+      baseUrl: "http://127.0.0.1:8787/api/v1",
       models: [],
     });
 

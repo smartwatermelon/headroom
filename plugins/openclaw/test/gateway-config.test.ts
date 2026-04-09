@@ -13,17 +13,17 @@ describe("resolveGatewayProviderIds", () => {
   it("allows an explicit provider list to override the default", () => {
     expect(
       resolveGatewayProviderIds({
-        gatewayProviderIds: ["anthropic", "copilot", "minimax-portal"],
+        gatewayProviderIds: ["anthropic", "github-copilot", "minimax-portal"],
       }),
-    ).toEqual(["anthropic", "copilot", "minimax-portal"]);
+    ).toEqual(["anthropic", "github-copilot", "minimax-portal"]);
   });
 
-  it("normalizes explicit provider ids", () => {
+  it("normalizes explicit provider ids and friendly aliases", () => {
     expect(
       resolveGatewayProviderIds({
-        gatewayProviderIds: [" anthropic ", "", "copilot", "anthropic"],
+        gatewayProviderIds: [" claude ", "", "copilot", "codex", "gemini", "anthropic"],
       }),
-    ).toEqual(["anthropic", "copilot"]);
+    ).toEqual(["anthropic", "github-copilot", "openai-codex", "google"]);
   });
 
   it("allows routing to be disabled", () => {
@@ -46,7 +46,7 @@ describe("applyGatewayProviderBaseUrls", () => {
     const result = applyGatewayProviderBaseUrls(
       {},
       "http://127.0.0.1:8787",
-      ["anthropic", "copilot", "minimax-portal"],
+      ["anthropic", "openrouter", "google", "minimax-portal"],
     );
 
     expect(result.changed).toBe(true);
@@ -55,7 +55,11 @@ describe("applyGatewayProviderBaseUrls", () => {
         baseUrl: "http://127.0.0.1:8787",
         models: [],
       },
-      copilot: {
+      openrouter: {
+        baseUrl: "http://127.0.0.1:8787",
+        models: [],
+      },
+      google: {
         baseUrl: "http://127.0.0.1:8787",
         models: [],
       },
@@ -128,6 +132,101 @@ describe("applyGatewayProviderBaseUrls", () => {
       baseUrl: "http://127.0.0.1:8787/v1",
       models: [],
     });
+  });
+
+  it("preserves protocol-specific GitHub Copilot OpenAI-family paths", () => {
+    const result = applyGatewayProviderBaseUrls(
+      {
+        models: {
+          providers: {
+            "github-copilot": {
+              baseUrl: "https://api.githubcopilot.com/v1",
+            },
+          },
+        },
+      },
+      "http://127.0.0.1:8787",
+      ["github-copilot"],
+    );
+
+    expect(result.changed).toBe(true);
+    expect((result.config as any).models.providers["github-copilot"]).toEqual({
+      baseUrl: "http://127.0.0.1:8787/v1",
+      models: [],
+    });
+  });
+
+  it("preserves protocol-specific GitHub Copilot Claude-family paths", () => {
+    const result = applyGatewayProviderBaseUrls(
+      {
+        models: {
+          providers: {
+            "github-copilot": {
+              baseUrl: "https://api.githubcopilot.com/anthropic",
+            },
+          },
+        },
+      },
+      "http://127.0.0.1:8787",
+      ["github-copilot"],
+    );
+
+    expect(result.changed).toBe(true);
+    expect((result.config as any).models.providers["github-copilot"]).toEqual({
+      baseUrl: "http://127.0.0.1:8787/anthropic",
+      models: [],
+    });
+  });
+
+  it("preserves OpenAI-compatible /api/v1 paths", () => {
+    const result = applyGatewayProviderBaseUrls(
+      {
+        models: {
+          providers: {
+            openrouter: {
+              baseUrl: "https://openrouter.ai/api/v1",
+            },
+          },
+        },
+      },
+      "http://127.0.0.1:8787",
+      ["openrouter"],
+    );
+
+    expect(result.changed).toBe(true);
+    expect((result.config as any).models.providers.openrouter).toEqual({
+      baseUrl: "http://127.0.0.1:8787/api/v1",
+      models: [],
+    });
+  });
+
+  it("preserves Gemini /v1beta paths", () => {
+    const result = applyGatewayProviderBaseUrls(
+      {
+        models: {
+          providers: {
+            google: {
+              baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+            },
+          },
+        },
+      },
+      "http://127.0.0.1:8787",
+      ["google"],
+    );
+
+    expect(result.changed).toBe(true);
+    expect((result.config as any).models.providers.google).toEqual({
+      baseUrl: "http://127.0.0.1:8787/v1beta",
+      models: [],
+    });
+  });
+
+  it("does not invent a GitHub Copilot proxy baseUrl without an upstream baseUrl", () => {
+    const result = applyGatewayProviderBaseUrls({}, "http://127.0.0.1:8787", ["github-copilot"]);
+
+    expect(result.changed).toBe(false);
+    expect((result.config as any).models?.providers?.["github-copilot"]).toBeUndefined();
   });
 });
 
