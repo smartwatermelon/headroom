@@ -621,7 +621,9 @@ def verify_openclaw_wrap(
 
 def main() -> None:
     verify_installs()
-    with tempfile.TemporaryDirectory(prefix="headroom-wrap-e2e-") as tmp_dir_str:
+    with tempfile.TemporaryDirectory(
+        prefix="headroom-wrap-e2e-", ignore_cleanup_errors=True
+    ) as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
         home_dir = tmp_dir / "home"
         project_dir = tmp_dir / "project"
