@@ -175,6 +175,47 @@ class BaseTokenizer(ABC):
                         total += self._count_content_parts(tr_content)
                     else:
                         total += self.count_text(json.dumps(tr_content))
+                elif not part_type and "reasoningContent" in part:
+                    # Strands SDK reasoning: {"reasoningContent": {"reasoningText": {"text": "..."}}}
+                    # This is actual text — count it precisely.
+                    reasoning = part["reasoningContent"]
+                    reasoning_text = reasoning.get("reasoningText", {})
+                    if isinstance(reasoning_text, dict):
+                        total += self.count_text(reasoning_text.get("text", ""))
+                    elif isinstance(reasoning_text, str):
+                        total += self.count_text(reasoning_text)
+                elif not part_type and "document" in part:
+                    # Strands SDK document: {"document": {"source": {"bytes": ...}}}
+                    # Provider internally extracts text from PDF/DOCX then tokenizes.
+                    # Accurate counting would require a PDF parser — instead we use
+                    # the Anthropic documented estimate of ~1500 tokens per page,
+                    # with ~3KB of PDF per page as a rough heuristic.
+                    doc = part["document"]
+                    source = doc.get("source", {})
+                    doc_bytes = source.get("bytes", b"")
+                    if isinstance(doc_bytes, bytes | bytearray):
+                        estimated_pages = max(1, len(doc_bytes) // 3000)
+                        total += estimated_pages * 1500
+                    else:
+                        total += self.count_text(str(doc_bytes))
+                elif not part_type and "image" in part:
+                    # Strands SDK image: {"image": {"source": {"bytes": ...}}}
+                    # Anthropic formula: tokens = (width * height) / 750.
+                    # Decode with Pillow for exact count; fall back to estimate.
+                    total += self._estimate_image_tokens(part["image"])
+                elif not part_type and "video" in part:
+                    # Strands SDK video: provider samples ~1 fps, each frame costs
+                    # image tokens. We can't decode frames without heavy deps, so
+                    # estimate from byte size assuming ~30KB per frame, ~1000 tokens
+                    # per frame (average image).
+                    vid = part["video"]
+                    source = vid.get("source", {})
+                    vid_bytes = source.get("bytes", b"")
+                    if isinstance(vid_bytes, bytes | bytearray):
+                        frames = max(1, len(vid_bytes) // 30000)
+                        total += frames * 1000
+                    else:
+                        total += 3200
                 else:
                     # Unknown type - estimate from JSON
                     total += self.count_text(json.dumps(part))
@@ -182,6 +223,45 @@ class BaseTokenizer(ABC):
                 total += self.count_text(part)
 
         return total
+
+    @staticmethod
+    def _estimate_image_tokens(image_data: dict[str, Any]) -> int:
+        """Estimate tokens for an image using Anthropic's formula: (w*h)/750.
+
+        Tries to decode dimensions with Pillow. Falls back to a conservative
+        estimate based on byte size.
+        """
+        source = image_data.get("source", {})
+        img_bytes = source.get("bytes", b"")
+
+        if isinstance(img_bytes, bytes | bytearray) and len(img_bytes) > 0:
+            try:
+                import io
+
+                from PIL import Image
+
+                img = Image.open(io.BytesIO(img_bytes))
+                w, h = img.size
+                # Anthropic resizes to fit 1568x1568 max
+                max_dim = 1568
+                if w > max_dim or h > max_dim:
+                    scale = max_dim / max(w, h)
+                    w, h = int(w * scale), int(h * scale)
+                return max(100, (w * h) // 750)
+            except Exception:
+                pass
+
+        # Fallback: estimate from byte size.
+        # Typical screenshot: ~200KB ≈ 1200x800 ≈ 1280 tokens
+        if isinstance(img_bytes, bytes | bytearray):
+            size_kb = len(img_bytes) / 1024
+            if size_kb < 50:
+                return 400  # Small icon/thumbnail
+            if size_kb < 500:
+                return 1200  # Typical screenshot
+            return 1600  # Large/high-res image
+
+        return 1200  # Default estimate
 
     def _count_tool_calls(self, tool_calls: list[dict[str, Any]]) -> int:
         """Count tokens in tool calls."""

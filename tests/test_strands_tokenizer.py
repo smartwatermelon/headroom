@@ -190,3 +190,192 @@ class TestMixedFormats:
         count = t.count_messages(messages)
         # Should be substantial — the tool result alone is ~700 tokens
         assert count > 500, f"Mixed conversation count too low: {count}"
+
+
+class TestStrandsReasoningContent:
+    """Strands reasoning blocks: {"reasoningContent": {"reasoningText": {"text": "..."}}}."""
+
+    def test_reasoning_text_counted_as_text(self):
+        """reasoningContent text should be counted with count_text, not estimated."""
+        t = _get_counter()
+        reasoning = "Let me think step by step about this problem. " * 100
+
+        # Strands format
+        msg_strands = [
+            {
+                "role": "assistant",
+                "content": [{"reasoningContent": {"reasoningText": {"text": reasoning}}}],
+            }
+        ]
+
+        # Equivalent plain text for comparison
+        msg_plain = [{"role": "assistant", "content": reasoning}]
+
+        s = t.count_messages(msg_strands)
+        p = t.count_messages(msg_plain)
+        assert s == p, f"Reasoning={s} should equal plain text={p}"
+
+    def test_reasoning_plus_text_both_counted(self):
+        """Message with both reasoning and text blocks."""
+        t = _get_counter()
+        msg = [
+            {
+                "role": "assistant",
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "thinking " * 200}}},
+                    {"text": "Here is my answer " * 50},
+                ],
+            }
+        ]
+        count = t.count_messages(msg)
+        # Should be substantial — both blocks counted
+        assert count > 200, f"Combined reasoning+text too low: {count}"
+
+
+class TestStrandsMediaContent:
+    """Strands image, document, video blocks."""
+
+    def test_image_not_zero(self):
+        """Image block should have nonzero token count."""
+        t = _get_counter()
+        msg = [
+            {
+                "role": "user",
+                "content": [{"image": {"format": "png", "source": {"bytes": b"x" * 50000}}}],
+            }
+        ]
+        count = t.count_messages(msg)
+        assert count > 100, f"Image count too low: {count}"
+
+    def test_document_not_zero(self):
+        """Document block should have nonzero token count."""
+        t = _get_counter()
+        msg = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "document": {
+                            "format": "pdf",
+                            "name": "report.pdf",
+                            "source": {"bytes": b"x" * 30000},
+                        }
+                    }
+                ],
+            }
+        ]
+        count = t.count_messages(msg)
+        assert count > 1000, f"Document count too low: {count}"
+
+    def test_video_not_zero(self):
+        """Video block should have nonzero token count."""
+        t = _get_counter()
+        msg = [
+            {
+                "role": "user",
+                "content": [{"video": {"format": "mp4", "source": {"bytes": b"x" * 300000}}}],
+            }
+        ]
+        count = t.count_messages(msg)
+        assert count > 1000, f"Video count too low: {count}"
+
+
+class TestStrandsFullConversation:
+    """End-to-end conversation with all Strands content types."""
+
+    def test_agent_conversation_with_reasoning_and_tools(self):
+        """Realistic Strands agent conversation."""
+        t = _get_counter()
+        messages = [
+            {"role": "user", "content": [{"text": "Analyze this code and fix the bug"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {"text": "Let me examine the code carefully. " * 50}
+                        }
+                    },
+                    {
+                        "toolUse": {
+                            "toolUseId": "t1",
+                            "name": "read_file",
+                            "input": {"path": "main.py"},
+                        }
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "t1",
+                            "content": [
+                                {
+                                    "text": "def process():\n    data = fetch()\n    return transform(data)\n"
+                                    * 50
+                                }
+                            ],
+                        }
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {"text": "The bug is in the transform function. " * 30}
+                        }
+                    },
+                    {"text": "I found the issue. The transform function doesn't handle None."},
+                ],
+            },
+        ]
+        count = t.count_messages(messages)
+        # Reasoning + tool result + text = should be substantial
+        assert count > 500, f"Full conversation too low: {count}"
+
+        # Verify reasoning contributes meaningfully
+        no_reasoning = [
+            {"role": "user", "content": [{"text": "Analyze this code"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "t1",
+                            "name": "read_file",
+                            "input": {"path": "main.py"},
+                        }
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "t1",
+                            "content": [
+                                {
+                                    "text": "def process():\n    data = fetch()\n    return transform(data)\n"
+                                    * 50
+                                }
+                            ],
+                        }
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"text": "I found the issue."},
+                ],
+            },
+        ]
+        count_no_reasoning = t.count_messages(no_reasoning)
+        assert count > count_no_reasoning + 100, (
+            f"Reasoning should add significant tokens: with={count}, without={count_no_reasoning}"
+        )
