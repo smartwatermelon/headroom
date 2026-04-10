@@ -987,9 +987,9 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     def _uptime_seconds() -> float:
         started_at = getattr(app.state, "started_at", None)
-        if started_at is None:
+        if not isinstance(started_at, (int, float)):
             return 0.0
-        return round(max(0.0, time.time() - started_at), 3)
+        return round(max(0.0, time.time() - float(started_at)), 3)
 
     def _component_health(
         *,
@@ -1017,6 +1017,8 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 "bridge_enabled": False,
             }
         )
+        memory_enabled = bool(memory_status.get("enabled", False))
+        memory_initialized = bool(memory_status.get("initialized", False))
         return {
             "startup": _component_health(
                 enabled=True,
@@ -1036,12 +1038,12 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 ready=(proxy.rate_limiter is not None),
             ),
             "memory": _component_health(
-                enabled=memory_status["enabled"],
-                ready=memory_status["initialized"],
+                enabled=memory_enabled,
+                ready=memory_initialized,
                 backend=memory_status["backend"],
-                initialized=memory_status["initialized"],
-                native_tool=memory_status["native_tool"],
-                bridge_enabled=memory_status["bridge_enabled"],
+                initialized=memory_initialized,
+                native_tool=bool(memory_status.get("native_tool", False)),
+                bridge_enabled=bool(memory_status.get("bridge_enabled", False)),
             ),
         }
 
