@@ -131,6 +131,20 @@ except ImportError:
     ScopeLevel = None  # type: ignore[assignment,misc]
     with_memory = None  # type: ignore[assignment]
 
+from .observability import (
+    HeadroomOtelMetrics,
+    HeadroomTracer,
+    LangfuseTracingConfig,
+    OTelMetricsConfig,
+    configure_langfuse_tracing,
+    configure_otel_metrics,
+    get_headroom_tracer,
+    get_langfuse_tracing_status,
+    get_otel_metrics,
+    get_otel_metrics_status,
+    reset_headroom_tracing,
+    reset_otel_metrics,
+)
 from .providers import AnthropicProvider, OpenAIProvider, Provider, TokenCounter
 
 # Relevance scoring - BM25 always available, embedding requires sentence-transformers
@@ -223,6 +237,19 @@ __all__ = [
     "count_tokens_text",
     "count_tokens_messages",
     "generate_report",
+    # Observability
+    "HeadroomOtelMetrics",
+    "HeadroomTracer",
+    "LangfuseTracingConfig",
+    "OTelMetricsConfig",
+    "configure_otel_metrics",
+    "configure_langfuse_tracing",
+    "get_headroom_tracer",
+    "get_langfuse_tracing_status",
+    "get_otel_metrics",
+    "get_otel_metrics_status",
+    "reset_headroom_tracing",
+    "reset_otel_metrics",
     # Memory - hierarchical memory system
     "with_memory",  # Main user-facing API
     "Memory",

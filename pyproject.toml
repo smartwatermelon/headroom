@@ -50,6 +50,7 @@ dependencies = [
     "litellm==1.82.3",            # Model registry, pricing, and provider support
     "click>=8.1.0",               # CLI framework
     "rich>=13.0.0",               # Rich terminal output
+    "opentelemetry-api>=1.24.0",  # Safe no-op OTEL API for instrumentation
 ]
 
 [project.optional-dependencies]
@@ -101,6 +102,11 @@ image = [
 # Report generation
 reports = [
     "jinja2>=3.0.0",
+]
+# OpenTelemetry metrics export
+otel = [
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0",
 ]
 # any-llm multi-provider backend (requires Python 3.11+)
 anyllm = [
@@ -173,6 +179,8 @@ dev = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "httpx[http2]>=0.24.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0",
     "ollama>=0.4.0",
     "langchain-ollama>=0.2.0",
     "hnswlib>=0.8.0",
@@ -182,7 +190,7 @@ dev = [
 ]
 # All optional dependencies (everything you need)
 all = [
-    "headroom-ai[proxy,code,ml,memory,relevance,image,reports,evals,voice,html,benchmark,mcp]",
+    "headroom-ai[proxy,code,ml,memory,relevance,image,reports,otel,evals,voice,html,benchmark,mcp]",
 ]
 
 [project.scripts]

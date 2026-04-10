@@ -57,9 +57,11 @@ Examples:
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from .observability import get_otel_metrics
 from .utils import extract_user_query as _extract_user_query
 
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy-initialized singleton pipeline
 _pipeline = None
-_pipeline_lock = None
+_pipeline_lock = threading.Lock()
 
 
 @dataclass
@@ -171,6 +173,11 @@ def compress(
         )
 
     except Exception as e:
+        get_otel_metrics().record_compression_failure(
+            model=model,
+            operation="compress",
+            error_type=type(e).__name__,
+        )
         logger.warning("Compression failed, returning original messages: %s", e)
         return CompressResult(
             messages=messages,
@@ -187,12 +194,6 @@ def _get_pipeline() -> Any:
 
     if _pipeline is not None:
         return _pipeline
-
-    import threading
-
-    global _pipeline_lock
-    if _pipeline_lock is None:
-        _pipeline_lock = threading.Lock()
 
     with _pipeline_lock:
         if _pipeline is not None:
