@@ -18,6 +18,10 @@ This is *temporal compression* - instead of carrying 10,000 tokens of conversati
 
 | Feature | Headroom | Letta (MemGPT) | Mem0 |
 |---------|----------|----------------|------|
+| **Cross-Agent Memory** | Any agent shares one DB via proxy | Per-agent only | Per-user, no cross-agent |
+| **Agent Provenance** | Tracks which agent saved/updated each memory | No | No |
+| **LLM-Mediated Dedup** | Piggybacks on user's own LLM for merge decisions | No | Separate LLM call ($) |
+| **Transparent Proxy** | Zero code changes — just route through proxy | Requires agent framework | Requires SDK integration |
 | **Hierarchical Scoping** | User → Session → Agent → Turn | Flat (per-agent) | Flat (per-user) |
 | **Temporal Versioning** | Full supersession chains | No | No |
 | **Zero-Latency Extraction** | Inline (Letta-style) | Inline | Separate call |
@@ -26,6 +30,112 @@ This is *temporal compression* - instead of carrying 10,000 tokens of conversati
 | **Semantic + Full-Text Search** | Both | Semantic only | Semantic only |
 | **Memory Bubbling** | Auto-promote important memories | No | No |
 | **Protocol-Based Architecture** | Yes (dependency injection) | No | No |
+
+---
+
+## Cross-Agent Memory (Proxy)
+
+The most powerful way to use memory: **any agent that routes through the proxy shares the same memory store.** Claude saves a fact, Codex reads it back. Zero configuration needed.
+
+```bash
+# Start the proxy with memory enabled
+headroom proxy --memory
+
+# Or use wrap (auto-starts proxy)
+headroom wrap claude --memory    # Claude Code with persistent memory
+headroom wrap codex --memory     # Codex with the SAME memory store
+headroom wrap aider --memory     # Aider shares it too
+```
+
+### How It Works
+
+```
+Claude Code                  Codex CLI                  Gemini CLI
+     │                          │                          │
+     └── /v1/messages ──┐      └── /v1/chat/completions ──┤     └── /generateContent ──┐
+                        │                                  │                            │
+                        ▼                                  ▼                            ▼
+                    ┌──────────────────────────────────────────────────────────────────┐
+                    │                    Headroom Proxy (--memory)                      │
+                    │                                                                   │
+                    │  1. Search memory DB for relevant context                        │
+                    │  2. Inject memories as system context (provider-native format)   │
+                    │  3. Add memory_save/search/update/delete tools                   │
+                    │  4. Forward to upstream LLM                                       │
+                    │  5. Handle memory tool calls in response                         │
+                    │  6. Async background dedup (>92% cosine → auto-remove)          │
+                    │                                                                   │
+                    └──────────────────────┬───────────────────────────────────────────┘
+                                           │
+                                           ▼
+                               .headroom/memory.db
+                               (project-scoped SQLite)
+```
+
+### Project-Scoped Database
+
+Memory is stored per-project at `{cwd}/.headroom/memory.db`. Each project has its own memory — no cross-project contamination. Override with `--memory-db-path` for a custom location.
+
+### User Identity
+
+User ID is auto-detected from `$USER` (your OS username). Override per-request with the `x-headroom-user-id` header. All memories are scoped to the user — multiple developers on the same project have separate memory stores.
+
+### Agent Provenance
+
+Every memory tracks which agent created or updated it:
+
+```json
+{
+  "content": "Project uses alembic for migrations",
+  "metadata": {
+    "source_agent": "claude",
+    "source_provider": "anthropic",
+    "created_via": "tool_call",
+    "created_at_utc": "2026-04-10T17:30:00Z"
+  }
+}
+```
+
+When an agent updates a memory, the update is tracked:
+
+```json
+{
+  "reason": "Updated by codex via openai: Added version info"
+}
+```
+
+### Intelligent Deduplication
+
+When the LLM calls `memory_save`, headroom:
+
+1. **Saves immediately** (zero latency)
+2. **Searches for similar existing memories** (cosine similarity)
+3. **Returns an enriched hint** if duplicates found:
+
+```json
+{
+  "status": "saved",
+  "memory_id": "abc123",
+  "note": "Similar memory exists (id: def456, 89% match, saved by codex):
+           'DB migration tool is alembic'. Call memory_update('def456',
+           '<merged content>') to consolidate."
+}
+```
+
+The LLM then decides whether to merge — using the user's own LLM, not a separate model. No extra cost to headroom.
+
+4. **Background auto-dedup**: If similarity >92%, the older duplicate is automatically removed (async, non-blocking).
+
+### Supported Providers
+
+Memory works with ALL providers routing through the proxy:
+
+| Provider | Context Injection | Memory Tools | Format |
+|----------|-------------------|--------------|--------|
+| **Anthropic** (Claude) | System parameter | Anthropic tool_use | Native |
+| **OpenAI** (Codex, GPT) | System message | OpenAI function calling | Native |
+| **Gemini** | systemInstruction | functionDeclarations | Native |
+| **Any OpenAI-compatible** | System message | Function calling | OpenAI format |
 
 ---
 
@@ -443,6 +553,10 @@ Headroom Memory uses **Protocol interfaces** (ports) for all components, enablin
 
 | Feature | Headroom | Letta | Mem0 |
 |---------|:--------:|:-----:|:----:|
+| Cross-agent sharing (proxy) | ✅ | ❌ | ❌ |
+| Agent provenance tracking | ✅ | ❌ | ❌ |
+| LLM-mediated dedup (no extra cost) | ✅ | ❌ | ❌ (uses separate LLM) |
+| Transparent proxy (zero code) | ✅ | ❌ | ❌ |
 | Hierarchical scoping | ✅ | ❌ | ❌ |
 | Temporal versioning | ✅ | ❌ | ❌ |
 | Zero-latency extraction | ✅ | ✅ | ❌ |

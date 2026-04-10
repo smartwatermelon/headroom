@@ -21,16 +21,18 @@ headroom learn --all --apply
 ## How It Works
 
 ```
-Past Sessions → Scanner → Analyzer → Writer → CLAUDE.md / MEMORY.md
+Past Sessions → Plugin → Analyzer → Writer → Agent-native context file
                   │           │          │
                   │           │          └─ Writes marker-delimited sections
                   │           │             (replaced on re-run, not duplicated)
                   │           │
-                  │           └─ Success Correlation: for each failure,
-                  │              finds what succeeded and extracts the diff
+                  │           └─ LLM-based analysis: finds failure patterns,
+                  │              success correlations, and actionable rules
                   │
-                  └─ Reads ~/.claude/projects/*.jsonl
-                     (extensible to Cursor, Codex, etc.)
+                  └─ Plugin reads agent-specific logs:
+                     • Claude Code: ~/.claude/projects/*.jsonl
+                     • Codex:       ~/.codex/sessions/*.json
+                     • Gemini CLI:  ~/.gemini/tmp/*/chats/session-*.json
 ```
 
 ### Success Correlation
@@ -95,12 +97,12 @@ Commands repeatedly rejected — model should suggest them to the user instead.
 
 ## Where Learnings Go
 
-| Pattern | Destination | Why |
-|---------|-------------|-----|
-| Environment, paths, search scope, commands, large files | **CLAUDE.md** | Stable project facts, version-controllable |
-| Missing paths, retry patterns, permissions | **MEMORY.md** | May change, agent-specific |
+| Pattern | Claude Code | Codex | Gemini CLI |
+|---------|-------------|-------|-----------|
+| Environment, paths, commands | **CLAUDE.md** | **AGENTS.md** | **GEMINI.md** |
+| Retry patterns, permissions | **MEMORY.md** | **instructions.md** | **GEMINI.md** |
 
-CLAUDE.md lives in your project directory. MEMORY.md lives in `~/.claude/projects/*/memory/`.
+Output files are agent-native: Claude Code uses CLAUDE.md/MEMORY.md, Codex uses AGENTS.md, Gemini uses GEMINI.md. The same learnings, written to the format each agent reads.
 
 ## Marker-Based Updates
 
@@ -116,25 +118,30 @@ Headroom manages a clearly-delimited section in each file:
 
 On re-run, only the content between markers is replaced. Your existing file content is preserved.
 
-## Architecture
+## Architecture (Plugin System)
+
+Headroom Learn uses a plugin architecture where each agent is a self-contained plugin:
 
 ```
-Scanner (adapter)  →  Analyzer (generic)  →  Writer (adapter)
-├── ClaudeCodeScanner   ├── EnvironmentAnalyzer   ├── ClaudeCodeWriter
-├── (CursorScanner)     ├── StructureAnalyzer     ├── (CursorWriter)
-└── (GenericScanner)    ├── CommandAnalyzer        └── (GenericWriter)
-                        ├── RetryAnalyzer
-                        └── CrossSessionAnalyzer
+Plugin Registry (auto-discovered)
+├── ClaudeCodePlugin  →  Analyzer (LLM)  →  ClaudeCodeWriter  →  CLAUDE.md / MEMORY.md
+├── CodexPlugin       →  Analyzer (LLM)  →  CodexWriter       →  AGENTS.md / instructions.md
+├── GeminiPlugin      →  Analyzer (LLM)  →  GeminiWriter      →  GEMINI.md
+└── (your plugin)     →  Analyzer (LLM)  →  (your writer)     →  (your file)
 ```
 
-**Scanners** read tool-specific log formats and produce normalized `ToolCall` sequences.
-**Analyzers** work on `ToolCall` — same analysis for any agent system.
-**Writers** output to tool-specific context injection mechanisms.
+**Plugins** bundle scanning, detection, and writing for one agent. Built-in plugins are auto-discovered from `headroom.learn.plugins.*`. External plugins register via the `headroom.learn_plugin` entry point.
 
-To add support for a new agent (e.g., Cursor):
-1. Write `CursorScanner(ConversationScanner)` — reads Cursor's log format
-2. Write `CursorWriter(ContextWriter)` — writes to `.cursorrules`
-3. Same analyzers, same models, same recommendations
+**The Analyzer** is shared — it uses an LLM (Sonnet, GPT-4o, or Gemini Flash) to find patterns. Same analysis for any agent.
+
+### Adding Support for a New Agent
+
+1. Create `headroom/learn/plugins/myagent.py`
+2. Implement `LearnPlugin` + `ConversationScanner` (scanner + writer + detection)
+3. Add `plugin = MyAgentPlugin()` at module scope
+4. Done — `headroom learn --agent myagent` works automatically
+
+Or install an external plugin: `pip install headroom-learn-cursor` (registers via entry point).
 
 ## CLI Reference
 
@@ -142,11 +149,21 @@ To add support for a new agent (e.g., Cursor):
 headroom learn [OPTIONS]
 
 Options:
-  --project PATH    Project directory to analyze (default: current directory)
-  --all             Analyze all discovered projects
-  --apply           Write recommendations (default: dry-run)
-  --claude-dir PATH Path to .claude directory (default: ~/.claude)
+  --project PATH               Project directory (default: current directory)
+  --all                        Analyze all discovered projects
+  --apply                      Write recommendations (default: dry-run)
+  --agent [auto|claude|codex|gemini]
+                               Which agent to analyze (default: auto-detect)
+  --model TEXT                 LLM for analysis (default: auto from API keys)
 ```
+
+### Supported Agents
+
+| Agent | Scanner | Writer | Output Files |
+|-------|---------|--------|-------------|
+| **Claude Code** | Reads `~/.claude/projects/*.jsonl` | ClaudeCodeWriter | CLAUDE.md, MEMORY.md |
+| **OpenAI Codex** | Reads `~/.codex/sessions/*.json` | CodexWriter | AGENTS.md, instructions.md |
+| **Gemini CLI** | Reads `~/.gemini/tmp/*/chats/session-*.json` | GeminiWriter | GEMINI.md |
 
 ## Real-World Results
 

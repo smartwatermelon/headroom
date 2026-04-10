@@ -130,15 +130,16 @@ Works with any language, any tool, any framework. **[Proxy docs](docs/proxy.md)*
 ### Coding agents — one command
 
 ```bash
-headroom wrap claude       # Starts proxy + launches Claude Code
-headroom wrap codex        # Starts proxy + launches OpenAI Codex CLI
-headroom wrap aider        # Starts proxy + launches Aider
-headroom wrap cursor       # Starts proxy + prints Cursor config
-headroom wrap openclaw     # Installs + configures OpenClaw plugin
-headroom unwrap openclaw   # Disables plugin + restores legacy engine
+headroom wrap claude              # Starts proxy + launches Claude Code
+headroom wrap codex               # Starts proxy + launches OpenAI Codex CLI
+headroom wrap aider               # Starts proxy + launches Aider
+headroom wrap cursor              # Starts proxy + prints Cursor config
+headroom wrap openclaw            # Installs + configures OpenClaw plugin
+headroom wrap claude --memory     # With persistent cross-agent memory
+headroom wrap codex --memory      # Shares the same memory store
 ```
 
-Headroom starts a proxy, points your tool at it, and compresses everything automatically.
+Headroom starts a proxy, points your tool at it, and compresses everything automatically. Add `--memory` for persistent memory that's shared across agents.
 
 ### Multi-agent — SharedContext
 
@@ -270,15 +271,24 @@ Auto-detects what's in your context — JSON arrays, code, logs, plain text — 
 
 Stabilizes message prefixes so your provider's KV cache actually works. Claude offers a 90% read discount on cached prefixes — but almost no framework takes advantage of it. Headroom does.
 
+### Cross-Agent Memory
+
+```bash
+headroom wrap claude --memory    # Claude with persistent memory
+headroom wrap codex --memory     # Codex shares the SAME memory store
+```
+
+Claude saves a fact, Codex reads it back. All agents sharing one proxy share one memory — project-scoped, user-isolated, with agent provenance tracking and automatic deduplication. No SDK changes needed. **[Memory docs](docs/memory.md)**
+
 ### Failure Learning
 
 ```bash
-headroom learn                   # Analyze past Claude Code sessions, show recommendations
-headroom learn --apply           # Write learnings to CLAUDE.md and MEMORY.md
-headroom learn --all --apply     # Learn across all your projects
+headroom learn                        # Auto-detect agent (Claude, Codex, Gemini)
+headroom learn --apply                # Write learnings to agent-native files
+headroom learn --agent codex --all    # Analyze all Codex sessions
 ```
 
-Reads your conversation history, finds every failed tool call, correlates it with what eventually succeeded, and writes specific corrections into your project files. Next session starts smarter. **[Learn docs](docs/learn.md)**
+Plugin-based: reads conversation history from Claude Code, Codex, or Gemini CLI. Finds failure patterns, correlates with successes, writes corrections to CLAUDE.md / AGENTS.md / GEMINI.md. External plugins via entry points. **[Learn docs](docs/learn.md)**
 
 <p align="center">
   <img src="headroom_learn.gif" alt="headroom learn demo" width="800">
@@ -302,10 +312,10 @@ Reads your conversation history, finds every failed tool call, correlates it wit
 | **CacheAligner** | Stabilizes prefixes for provider KV cache hits |
 | **IntelligentContext** | Score-based context management with learned importance |
 | **Image Compression** | 40-90% token reduction via trained ML router |
-| **Memory** | Persistent memory across conversations |
+| **Memory** | Cross-agent persistent memory — Claude saves, Codex reads it back. Agent provenance + auto-dedup |
 | **Compression Hooks** | Customize compression with pre/post hooks |
 | **Read Lifecycle** | Detects stale/superseded Read outputs, replaces with CCR markers |
-| **`headroom learn`** | Analyzes past failures, writes project-specific learnings to CLAUDE.md/MEMORY.md |
+| **`headroom learn`** | Plugin-based failure learning for Claude Code, Codex, Gemini CLI (extensible via entry points) |
 | **`headroom wrap`** | One-command setup for Claude Code, Codex, Aider, Cursor |
 | **SharedContext** | Compressed inter-agent context sharing for multi-agent workflows |
 | **MCP Tools** | headroom_compress, headroom_retrieve, headroom_stats for Claude Code/Cursor |
@@ -480,11 +490,11 @@ Python 3.10+
 | [Latency Benchmarks](docs/LATENCY_BENCHMARKS.md) | Compression overhead & cost-benefit analysis |
 | [Limitations](docs/LIMITATIONS.md) | When compression helps, when it doesn't |
 | [Evals Framework](headroom/evals/README.md) | Prove compression preserves accuracy |
-| [Memory](docs/memory.md) | Persistent memory |
+| [Memory](docs/memory.md) | Cross-agent persistent memory with provenance + dedup |
 | [Agno](docs/agno.md) | Agno agent framework |
 | [MCP](docs/mcp.md) | Context engineering toolkit (compress, retrieve, stats) |
 | [SharedContext](docs/shared-context.md) | Compressed inter-agent context sharing |
-| [Learn](docs/learn.md) | Offline failure learning for coding agents |
+| [Learn](docs/learn.md) | Plugin-based failure learning (Claude, Codex, Gemini, extensible) |
 | [Configuration](docs/configuration.md) | All options |
 
 ---
