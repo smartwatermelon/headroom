@@ -82,6 +82,16 @@ pip install "headroom-ai[all]"
 npm install headroom-ai
 ```
 
+**Docker-native (no Python or Node on host):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.sh | bash
+```
+
+PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.ps1 | iex
+```
+
 ### Any agent — one function
 
 **Python:**
@@ -127,6 +137,8 @@ Use `cache` mode for long-running chats where preserving prior-turn bytes improv
 
 Works with any language, any tool, any framework. **[Proxy docs](docs/proxy.md)**
 
+Prefer Docker as the runtime provider? See **[Docker-native install](docs/docker-install.md)**.
+
 ### Coding agents — one command
 
 ```bash
@@ -142,6 +154,8 @@ headroom wrap codex --memory      # Shares the same memory store
 ```
 
 Headroom starts a proxy, points your tool at it, and compresses everything automatically. Add `--memory` for persistent memory that's shared across agents.
+
+In Docker-native mode, Headroom still runs in Docker while wrapped tools run on the host. `wrap claude`, `wrap codex`, `wrap aider`, `wrap cursor`, and OpenClaw plugin setup (`wrap openclaw` / `unwrap openclaw`) are host-managed through the installed wrapper.
 
 ### Multi-agent — SharedContext
 

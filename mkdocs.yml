@@ -86,6 +86,7 @@ nav:
   - Getting Started:
     - Quickstart: quickstart.md
     - Installation: getting-started.md
+    - Docker-Native Install: docker-install.md
     - Configuration: configuration.md
   - User Guide:
     - Proxy Server: proxy.md
@@ -111,6 +112,7 @@ nav:
     - Latency: LATENCY_BENCHMARKS.md
     - Limitations: LIMITATIONS.md
   - Reference:
+    - CLI: cli.md
     - API: api.md
     - SDK: sdk.md
     - Metrics & Observability: metrics.md

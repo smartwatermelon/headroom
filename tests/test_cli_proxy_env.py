@@ -26,6 +26,60 @@ def runner():
 class TestCLIProxyEnvVars:
     """Test that the CLI proxy command reads API URL env vars."""
 
+    def test_headroom_host_from_env(self, runner):
+        """HEADROOM_HOST env var should be passed to ProxyConfig."""
+        captured_config = {}
+
+        def mock_run_server(config):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(
+                main,
+                ["proxy"],
+                env={"HEADROOM_HOST": "0.0.0.0"},
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].host == "0.0.0.0"
+
+    def test_headroom_port_from_env(self, runner):
+        """HEADROOM_PORT env var should be passed to ProxyConfig."""
+        captured_config = {}
+
+        def mock_run_server(config):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(
+                main,
+                ["proxy"],
+                env={"HEADROOM_PORT": "9797"},
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].port == 9797
+
+    def test_headroom_budget_from_env(self, runner):
+        """HEADROOM_BUDGET env var should be passed to ProxyConfig."""
+        captured_config = {}
+
+        def mock_run_server(config):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(
+                main,
+                ["proxy"],
+                env={"HEADROOM_BUDGET": "100.5"},
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].budget_limit_usd == 100.5
+
     def test_openai_target_api_url_from_env(self, runner):
         """OPENAI_TARGET_API_URL env var should be passed to ProxyConfig."""
         captured_config = {}

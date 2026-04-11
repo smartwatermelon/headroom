@@ -26,6 +26,20 @@ pip install headroom[all]
 npm install headroom-ai
 ```
 
+**Docker-native:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.sh | bash
+```
+
+PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.ps1 | iex
+```
+
+See [Docker-native install](docker-install.md) for wrapper behavior, compose usage, and host-integrated `wrap` flows.
+
 ## Quick Start: Proxy Mode (Recommended)
 
 The easiest way to use Headroom is as a proxy server:

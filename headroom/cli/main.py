@@ -2,6 +2,8 @@
 
 import click
 
+CLI_CONTEXT_SETTINGS = {"help_option_names": ["--help", "-?"]}
+
 
 def get_version() -> str:
     """Get the current version."""
@@ -13,8 +15,8 @@ def get_version() -> str:
         return "unknown"
 
 
-@click.group()
-@click.version_option(version=get_version(), prog_name="headroom")
+@click.group(context_settings=CLI_CONTEXT_SETTINGS)
+@click.version_option(get_version(), "--version", "-v", prog_name="headroom")
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """Headroom - The Context Optimization Layer for LLM Applications.
@@ -50,6 +52,25 @@ def _register_commands() -> None:
 
 
 _register_commands()
+
+
+def _apply_help_aliases(command: click.Command) -> None:
+    """Ensure `-?` works everywhere in the Click command tree."""
+    context_settings = dict(command.context_settings or {})
+    help_option_names = list(context_settings.get("help_option_names", []))
+    if "--help" not in help_option_names:
+        help_option_names.append("--help")
+    if "-?" not in help_option_names:
+        help_option_names.append("-?")
+    context_settings["help_option_names"] = help_option_names
+    command.context_settings = context_settings
+
+    if isinstance(command, click.Group):
+        for child in command.commands.values():
+            _apply_help_aliases(child)
+
+
+_apply_help_aliases(main)
 
 if __name__ == "__main__":
     main()

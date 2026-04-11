@@ -10,8 +10,20 @@ from .main import main
 
 
 @main.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
-@click.option("--port", "-p", default=8787, type=int, help="Port to bind to (default: 8787)")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    envvar="HEADROOM_HOST",
+    help="Host to bind to (default: 127.0.0.1, env: HEADROOM_HOST)",
+)
+@click.option(
+    "--port",
+    "-p",
+    default=8787,
+    type=int,
+    envvar="HEADROOM_PORT",
+    help="Port to bind to (default: 8787, env: HEADROOM_PORT)",
+)
 @click.option(
     "--mode",
     default=None,
@@ -48,7 +60,13 @@ from .main import main
     help="Upstream connection timeout in seconds (default: 10)",
 )
 @click.option("--log-file", default=None, help="Path to JSONL log file")
-@click.option("--budget", type=float, default=None, help="Daily budget limit in USD")
+@click.option(
+    "--budget",
+    type=float,
+    default=None,
+    envvar="HEADROOM_BUDGET",
+    help="Daily budget limit in USD (env: HEADROOM_BUDGET)",
+)
 # Code-aware compression (ON by default if installed)
 @click.option("--no-code-aware", is_flag=True, help="Disable AST-based code compression")
 # Read lifecycle (ON by default: compresses stale/superseded Read outputs)

@@ -1,5 +1,9 @@
 # Private scripts (contain credentials)
 scripts/
+!scripts/
+scripts/*
+!scripts/install.sh
+!scripts/install.ps1
 
 # Swift SDK (separate repo)
 swift/

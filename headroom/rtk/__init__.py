@@ -16,6 +16,16 @@ _RTK_NAME = "rtk.exe" if platform.system() == "Windows" else "rtk"
 RTK_BIN_PATH = RTK_BIN_DIR / _RTK_NAME
 
 
+def _managed_rtk_candidates() -> list[Path]:
+    """Return known Headroom-managed rtk binary paths."""
+    candidates = [RTK_BIN_DIR / _RTK_NAME]
+    for name in ("rtk", "rtk.exe"):
+        path = RTK_BIN_DIR / name
+        if path not in candidates:
+            candidates.append(path)
+    return candidates
+
+
 def get_rtk_path() -> Path | None:
     """Get path to rtk binary — check PATH first, then ~/.headroom/bin/."""
     # Check if rtk is already in PATH (e.g., installed via brew)
@@ -24,8 +34,9 @@ def get_rtk_path() -> Path | None:
         return Path(system_rtk)
 
     # Check Headroom-managed install
-    if RTK_BIN_PATH.exists() and RTK_BIN_PATH.is_file():
-        return RTK_BIN_PATH
+    for candidate in _managed_rtk_candidates():
+        if candidate.exists() and candidate.is_file():
+            return candidate
 
     return None
 

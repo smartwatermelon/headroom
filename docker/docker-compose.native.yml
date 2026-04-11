@@ -1,0 +1,33 @@
+services:
+  cli:
+    image: ${HEADROOM_IMAGE:-ghcr.io/chopratejas/headroom:latest}
+    entrypoint: ["headroom"]
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    environment:
+      HOME: /tmp/headroom-home
+    volumes:
+      - ${HEADROOM_WORKSPACE:-.}:/workspace
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.headroom:/tmp/headroom-home/.headroom
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.claude:/tmp/headroom-home/.claude
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.codex:/tmp/headroom-home/.codex
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.gemini:/tmp/headroom-home/.gemini
+    command: ["--help"]
+
+  proxy:
+    image: ${HEADROOM_IMAGE:-ghcr.io/chopratejas/headroom:latest}
+    entrypoint: ["headroom", "proxy"]
+    working_dir: /workspace
+    environment:
+      HOME: /tmp/headroom-home
+      HEADROOM_HOST: 0.0.0.0
+    ports:
+      - "${HEADROOM_PORT:-8787}:${HEADROOM_PORT:-8787}"
+    volumes:
+      - ${HEADROOM_WORKSPACE:-.}:/workspace
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.headroom:/tmp/headroom-home/.headroom
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.claude:/tmp/headroom-home/.claude
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.codex:/tmp/headroom-home/.codex
+      - ${HEADROOM_HOST_HOME:?set HEADROOM_HOST_HOME}/.gemini:/tmp/headroom-home/.gemini
+    command: ["--host", "0.0.0.0", "--port", "${HEADROOM_PORT:-8787}"]

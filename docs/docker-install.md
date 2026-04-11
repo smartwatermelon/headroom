@@ -1,0 +1,130 @@
+# Docker-Native Install
+
+Run Headroom without installing Python or Node.js on the host. The install scripts add a native `headroom` wrapper that keeps **Headroom itself** in Docker while orchestrating the rest of your workflow on the host OS.
+
+## One-line install
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.sh | bash
+```
+
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.ps1 | iex
+```
+
+## What the installer does
+
+1. Verifies Docker is installed and available.
+2. Pulls `ghcr.io/chopratejas/headroom:latest`.
+3. Installs a `headroom` wrapper into `~/.local/bin` or `~/bin`.
+4. Updates shell startup files so the wrapper directory is on `PATH`.
+
+The wrapper keeps Headroom inside Docker and mounts host state back into the container so native behavior stays consistent:
+
+- project workspace -> `/workspace`
+- `~/.headroom`
+- `~/.claude`
+- `~/.codex`
+- `~/.gemini`
+
+Port `8787` stays the default, so `http://localhost:8787` works the same way as a native install.
+
+## How the wrapper behaves
+
+### Native Headroom commands
+
+These run directly inside the container:
+
+```bash
+headroom proxy
+headroom learn
+headroom mcp install
+headroom memory list
+```
+
+For `proxy`, the wrapper publishes the selected port back to the host:
+
+```bash
+docker run --rm -it \
+  -p 8787:8787 \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  ghcr.io/chopratejas/headroom:latest \
+  headroom proxy --host 0.0.0.0 --port 8787
+```
+
+### `wrap` commands
+
+`wrap` is host-oriented in Docker-native mode:
+
+- the wrapper starts the Headroom proxy in Docker
+- container-side prep writes Headroom config, memory, and `rtk` guidance into mounted host files
+- the target CLI itself is launched on the host by the wrapper
+
+Supported host wrap flows:
+
+- `headroom wrap claude`
+- `headroom wrap codex`
+- `headroom wrap aider`
+- `headroom wrap cursor`
+- `headroom wrap openclaw`
+- `headroom unwrap openclaw`
+
+OpenClaw remains host-native in Docker-native mode:
+
+- the host must already have the `openclaw` CLI installed
+- `headroom wrap openclaw` installs/configures the Headroom plugin through the host `openclaw` CLI
+- plugin auto-start still launches the installed host `headroom` wrapper from `PATH`, which then runs Headroom in Docker
+- local plugin source mode (`--plugin-path`) is also supported, but it may require host `npm` when build steps are needed
+
+## Docker Compose support
+
+Use `docker/docker-compose.native.yml` when you want an explicit compose-managed proxy or CLI shell.
+
+### macOS / Linux
+
+```bash
+export HEADROOM_HOST_HOME="$HOME"
+export HEADROOM_WORKSPACE="$PWD"
+docker compose -f docker/docker-compose.native.yml up proxy
+```
+
+### Windows PowerShell
+
+```powershell
+$env:HEADROOM_HOST_HOME = $HOME
+$env:HEADROOM_WORKSPACE = (Get-Location).Path
+docker compose -f docker/docker-compose.native.yml up proxy
+```
+
+You can also run one-off CLI commands through compose:
+
+```bash
+docker compose -f docker/docker-compose.native.yml run --rm cli learn
+docker compose -f docker/docker-compose.native.yml run --rm cli mcp install
+```
+
+## Environment passthrough
+
+The wrapper forwards Headroom and provider environment variables into the container, including common prefixes such as:
+
+- `HEADROOM_`
+- `ANTHROPIC_`
+- `OPENAI_`
+- `GEMINI_`
+- `AWS_`
+- `GOOGLE_` / `GOOGLE_CLOUD_`
+- `AZURE_`
+- `OTEL_`
+
+That keeps provider auth and runtime config working without maintaining a separate env file for the container.
+
+## Notes
+
+- Docker is the only required Headroom runtime dependency on the host.
+- Wrapped tools like Claude Code, Codex CLI, Aider, and Cursor still run on the host when you use `headroom wrap ...`.
+- The install scripts are idempotent: rerunning them refreshes the wrapper and image without duplicating shell profile blocks.

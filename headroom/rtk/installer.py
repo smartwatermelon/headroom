@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import platform
 import stat
 import subprocess
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 GITHUB_RELEASE_URL = "https://github.com/rtk-ai/rtk/releases/download"
 
 
-def _get_target_triple() -> str:
+def _detect_runtime_target_triple() -> str:
     """Detect platform and return the rtk release target triple."""
     system = platform.system()
     machine = platform.machine()
@@ -35,6 +36,21 @@ def _get_target_triple() -> str:
         return "x86_64-pc-windows-msvc"
 
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
+
+
+def _get_target_triple() -> str:
+    """Return the requested rtk target triple, honoring explicit overrides."""
+    return os.environ.get("HEADROOM_RTK_TARGET", "").strip() or _detect_runtime_target_triple()
+
+
+def _binary_name_for_target(target: str) -> str:
+    """Return the expected binary name for a target triple."""
+    return "rtk.exe" if "windows" in target else "rtk"
+
+
+def _should_verify_target(target: str) -> bool:
+    """Verify only when the requested target matches the current runtime."""
+    return target == _detect_runtime_target_triple()
 
 
 def _get_download_url(version: str) -> tuple[str, str]:
@@ -66,7 +82,9 @@ def download_rtk(version: str | None = None) -> Path:
         RuntimeError: If download or extraction fails.
     """
     version = version or RTK_VERSION
+    target = _get_target_triple()
     url, ext = _get_download_url(version)
+    target_path = RTK_BIN_DIR / _binary_name_for_target(target)
 
     RTK_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -97,7 +115,7 @@ def download_rtk(version: str | None = None) -> Path:
                 # Find the rtk binary inside the archive
                 for member in tar.getmembers():
                     if member.name.endswith("/rtk") or member.name == "rtk":
-                        member.name = "rtk"  # Flatten path
+                        member.name = target_path.name  # Flatten path
                         tar.extract(member, RTK_BIN_DIR)
                         break
                 else:
@@ -106,8 +124,7 @@ def download_rtk(version: str | None = None) -> Path:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 for name in zf.namelist():
                     if name.endswith("rtk.exe") or name.endswith("/rtk"):
-                        target_name = "rtk.exe" if name.endswith(".exe") else "rtk"
-                        with zf.open(name) as src, open(RTK_BIN_DIR / target_name, "wb") as dst:
+                        with zf.open(name) as src, open(target_path, "wb") as dst:
                             dst.write(src.read())
                         break
                 else:
@@ -116,28 +133,30 @@ def download_rtk(version: str | None = None) -> Path:
         raise RuntimeError(f"Failed to extract rtk archive: {e}") from e
 
     # Make executable (skip on Windows — no Unix permissions)
-    if platform.system() != "Windows":
-        RTK_BIN_PATH.chmod(RTK_BIN_PATH.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if "windows" not in target:
+        target_path.chmod(target_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-    # Verify
-    try:
-        result = subprocess.run(
-            [str(RTK_BIN_PATH), "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"rtk verification failed: {result.stderr}")
-        logger.info("rtk installed: %s", result.stdout.strip())
-    except FileNotFoundError as e:
-        raise RuntimeError("rtk binary not found after extraction") from e
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError("rtk verification timed out") from e
+    if _should_verify_target(target):
+        try:
+            result = subprocess.run(
+                [str(target_path), "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"rtk verification failed: {result.stderr}")
+            logger.info("rtk installed: %s", result.stdout.strip())
+        except FileNotFoundError as e:
+            raise RuntimeError("rtk binary not found after extraction") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("rtk verification timed out") from e
+    else:
+        logger.info("rtk installed for target %s at %s (verification skipped)", target, target_path)
 
-    return RTK_BIN_PATH
+    return target_path
 
 
 def register_claude_hooks(rtk_path: Path | None = None) -> bool:
