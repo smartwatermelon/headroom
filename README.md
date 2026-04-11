@@ -131,6 +131,8 @@ Works with any language, any tool, any framework. **[Proxy docs](docs/proxy.md)*
 
 ```bash
 headroom wrap claude              # Starts proxy + launches Claude Code
+headroom wrap copilot -- --model claude-sonnet-4-20250514
+                                  # Starts proxy + launches GitHub Copilot CLI
 headroom wrap codex               # Starts proxy + launches OpenAI Codex CLI
 headroom wrap aider               # Starts proxy + launches Aider
 headroom wrap cursor              # Starts proxy + prints Cursor config
@@ -178,6 +180,7 @@ Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `h
 | **LangChain** | Wrap model | `HeadroomChatModel(your_llm)` |
 | **OpenClaw** | One-command wrap/unwrap | `headroom wrap openclaw` / `headroom unwrap openclaw` |
 | **Claude Code** | Wrap | `headroom wrap claude` |
+| **GitHub Copilot CLI** | Wrap | `headroom wrap copilot -- --model claude-sonnet-4-20250514` |
 | **Codex / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
 
 **[Full Integration Guide](docs/integration-guide.md)** | **[TypeScript SDK](docs/typescript-sdk.md)**
@@ -316,7 +319,7 @@ Plugin-based: reads conversation history from Claude Code, Codex, or Gemini CLI.
 | **Compression Hooks** | Customize compression with pre/post hooks |
 | **Read Lifecycle** | Detects stale/superseded Read outputs, replaces with CCR markers |
 | **`headroom learn`** | Plugin-based failure learning for Claude Code, Codex, Gemini CLI (extensible via entry points) |
-| **`headroom wrap`** | One-command setup for Claude Code, Codex, Aider, Cursor |
+| **`headroom wrap`** | One-command setup for Claude Code, GitHub Copilot CLI, Codex, Aider, Cursor |
 | **SharedContext** | Compressed inter-agent context sharing for multi-agent workflows |
 | **MCP Tools** | headroom_compress, headroom_retrieve, headroom_stats for Claude Code/Cursor |
 
@@ -374,7 +377,7 @@ Context compression is a new space. Here's how the approaches differ:
 
 | Integration | Status | Docs |
 |-------------|--------|------|
-| `headroom wrap claude/codex/aider/cursor` | **Stable** | [Proxy Docs](docs/proxy.md) |
+| `headroom wrap claude/copilot/codex/aider/cursor` | **Stable** | [Proxy Docs](docs/proxy.md) |
 | `compress()` — one function | **Stable** | [Integration Guide](docs/integration-guide.md) |
 | `SharedContext` — multi-agent | **Stable** | [SharedContext Guide](docs/shared-context.md) |
 | LiteLLM callback | **Stable** | [Integration Guide](docs/integration-guide.md#litellm) |

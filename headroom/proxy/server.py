@@ -998,7 +998,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
     def _uptime_seconds() -> float:
         started_at = getattr(app.state, "started_at", None)
-        if not isinstance(started_at, (int, float)):
+        if not isinstance(started_at, int | float):
             return 0.0
         return round(max(0.0, time.time() - float(started_at)), 3)
 
@@ -1072,6 +1072,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         }
         if include_config:
             payload["config"] = {
+                "backend": config.backend,
                 "optimize": config.optimize,
                 "cache": config.cache_enabled,
                 "rate_limit": config.rate_limit_enabled,

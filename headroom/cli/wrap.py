@@ -2,6 +2,7 @@
 
 Usage:
     headroom wrap claude                    # Start proxy + rtk + claude
+    headroom wrap copilot -- --model ...    # Start proxy + launch GitHub Copilot CLI
     headroom wrap codex                     # Start proxy + OpenAI Codex CLI
     headroom wrap aider                     # Start proxy + aider
     headroom wrap cursor                    # Start proxy + print Cursor config instructions
@@ -22,6 +23,8 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -325,6 +328,46 @@ def _inject_rtk_instructions(file_path: Path, verbose: bool = False) -> bool:
 
     click.echo(f"  rtk instructions injected into {file_path}")
     return True
+
+
+def _resolve_copilot_provider_type(backend: str | None, provider_type: str) -> str:
+    """Resolve Copilot BYOK provider type for the current proxy backend."""
+    if provider_type != "auto":
+        return provider_type
+
+    effective_backend = backend or os.environ.get("HEADROOM_BACKEND") or "anthropic"
+    return "anthropic" if effective_backend == "anthropic" else "openai"
+
+
+def _detect_running_proxy_backend(port: int) -> str | None:
+    """Read the backend of an already-running proxy from its health endpoint."""
+    url = f"http://127.0.0.1:{port}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
+        return None
+
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        return None
+
+    backend = config.get("backend")
+    return backend if isinstance(backend, str) else None
+
+
+def _copilot_model_configured(copilot_args: tuple[str, ...], env: dict[str, str]) -> bool:
+    """Return True when Copilot BYOK model selection is configured."""
+    if env.get("COPILOT_MODEL") or env.get("COPILOT_PROVIDER_MODEL_ID"):
+        return True
+
+    for idx, arg in enumerate(copilot_args):
+        if arg == "--model" and idx + 1 < len(copilot_args):
+            return True
+        if arg.startswith("--model="):
+            return True
+
+    return False
 
 
 def _ensure_proxy(
@@ -675,6 +718,7 @@ def wrap() -> None:
     \b
     Supported tools:
         headroom wrap claude              # Claude Code (Anthropic)
+        headroom wrap copilot -- --model claude-sonnet-4-20250514
         headroom wrap codex               # OpenAI Codex CLI
         headroom wrap aider               # Aider
         headroom wrap cursor              # Cursor (prints config instructions)
@@ -766,6 +810,153 @@ def claude(
         raise SystemExit(1) from e
     finally:
         cleanup()
+
+
+# =============================================================================
+# GitHub Copilot CLI
+# =============================================================================
+
+
+@wrap.command(context_settings={"ignore_unknown_options": True})
+@click.option("--port", "-p", default=8787, type=int, help="Proxy port (default: 8787)")
+@click.option(
+    "--no-rtk",
+    is_flag=True,
+    help="Skip rtk installation and Copilot instructions injection",
+)
+@click.option("--no-proxy", is_flag=True, help="Skip proxy startup (use existing proxy)")
+@click.option(
+    "--backend",
+    default=None,
+    help="API backend for the proxy: 'anthropic', 'anyllm', 'litellm-vertex', etc. (env: HEADROOM_BACKEND)",
+)
+@click.option(
+    "--anyllm-provider",
+    default=None,
+    help="Provider for any-llm backend: openai, mistral, groq, etc. (env: HEADROOM_ANYLLM_PROVIDER)",
+)
+@click.option(
+    "--region", default=None, help="Cloud region for Bedrock/Vertex (env: HEADROOM_REGION)"
+)
+@click.option(
+    "--provider-type",
+    type=click.Choice(["auto", "anthropic", "openai"]),
+    default="auto",
+    show_default=True,
+    help="Copilot BYOK provider mode. 'auto' uses anthropic for the default proxy backend and openai for translated backends.",
+)
+@click.option(
+    "--wire-api",
+    type=click.Choice(["completions", "responses"]),
+    default=None,
+    help="OpenAI-compatible Copilot wire API. Defaults to 'completions' when provider-type resolves to openai.",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+@click.argument("copilot_args", nargs=-1, type=click.UNPROCESSED)
+def copilot(
+    port: int,
+    no_rtk: bool,
+    no_proxy: bool,
+    backend: str | None,
+    anyllm_provider: str | None,
+    region: str | None,
+    provider_type: str,
+    wire_api: str | None,
+    verbose: bool,
+    copilot_args: tuple[str, ...],
+) -> None:
+    """Launch GitHub Copilot CLI through Headroom proxy.
+
+    \b
+    Configures Copilot CLI BYOK provider variables so Copilot routes through
+    the local Headroom proxy. In auto mode, the wrapper uses Anthropic-style
+    routing for the stock proxy backend and OpenAI-compatible routing for
+    translated backends such as any-llm and LiteLLM.
+
+    \b
+    Examples:
+        headroom wrap copilot -- --model claude-sonnet-4-20250514
+        headroom wrap copilot --backend anyllm --anyllm-provider groq -- --model gpt-4o
+        headroom wrap copilot --provider-type openai --wire-api responses -- --model gpt-5.4
+        headroom wrap copilot --no-rtk -- --prompt "explain this file"
+    """
+    copilot_bin = shutil.which("copilot")
+    if not copilot_bin:
+        click.echo("Error: 'copilot' not found in PATH.")
+        click.echo(
+            "Install GitHub Copilot CLI: "
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli"
+        )
+        raise SystemExit(1)
+
+    effective_backend = backend or os.environ.get("HEADROOM_BACKEND")
+    if _check_proxy(port):
+        running_backend = _detect_running_proxy_backend(port)
+        if effective_backend and running_backend and effective_backend != running_backend:
+            raise click.ClickException(
+                f"Proxy already running on port {port} with backend '{running_backend}'. "
+                f"Stop it or rerun with --backend {running_backend}."
+            )
+        effective_backend = running_backend or effective_backend
+
+    effective_provider_type = _resolve_copilot_provider_type(effective_backend, provider_type)
+    if effective_provider_type == "anthropic" and wire_api is not None:
+        raise click.ClickException(
+            "--wire-api is only valid when Copilot is using the openai provider type."
+        )
+    if wire_api == "responses" and effective_backend not in (None, "anthropic"):
+        raise click.ClickException(
+            "--wire-api responses is not supported with translated backends; use completions."
+        )
+
+    if not no_rtk:
+        click.echo("  Setting up rtk for Copilot...")
+        rtk_path = _ensure_rtk_binary(verbose=verbose)
+        if rtk_path:
+            copilot_instructions = Path.cwd() / ".github" / "copilot-instructions.md"
+            _inject_rtk_instructions(copilot_instructions, verbose=verbose)
+
+    env = os.environ.copy()
+    env["COPILOT_PROVIDER_TYPE"] = effective_provider_type
+    env.pop("COPILOT_PROVIDER_WIRE_API", None)
+
+    env_vars_display: list[str]
+    if effective_provider_type == "anthropic":
+        env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}"
+        env_vars_display = [
+            "COPILOT_PROVIDER_TYPE=anthropic",
+            f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}",
+        ]
+    else:
+        effective_wire_api = wire_api or "completions"
+        env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+        env["COPILOT_PROVIDER_WIRE_API"] = effective_wire_api
+        env_vars_display = [
+            "COPILOT_PROVIDER_TYPE=openai",
+            f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}/v1",
+            f"COPILOT_PROVIDER_WIRE_API={effective_wire_api}",
+        ]
+
+    if not _copilot_model_configured(copilot_args, env):
+        click.echo(
+            "  Note: Copilot BYOK requires a model. Pass `--model <name>` "
+            "or set `COPILOT_MODEL` / `COPILOT_PROVIDER_MODEL_ID`."
+        )
+
+    _launch_tool(
+        binary=copilot_bin,
+        args=copilot_args,
+        env=env,
+        port=port,
+        no_proxy=no_proxy,
+        tool_label="COPILOT",
+        env_vars_display=env_vars_display,
+        learn=False,
+        agent_type="copilot",
+        backend=backend,
+        anyllm_provider=anyllm_provider,
+        region=region,
+    )
 
 
 # =============================================================================

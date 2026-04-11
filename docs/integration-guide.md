@@ -9,7 +9,7 @@ You don't need to run the Headroom proxy. Headroom is a compression library that
 | Any Python app | [`compress()`](#compress-function) | 2 lines |
 | LiteLLM | [LiteLLM callback](#litellm) | 1 line |
 | A Python proxy (FastAPI, custom) | [ASGI middleware](#asgi-middleware) | 1 line |
-| Claude Code / Cursor | [Headroom proxy](#proxy) | 1 env var |
+| Claude Code / Cursor / Copilot CLI | [Headroom proxy](#proxy) | 1 command or env var |
 | Agno agents | [Agno integration](#agno) | Wrap model |
 | LangChain | [LangChain integration](#langchain) | Wrap model |
 | Non-Python app | [Headroom proxy](#proxy) | HTTP |
@@ -182,7 +182,7 @@ Response headers include:
 
 ## Proxy
 
-The Headroom proxy is a standalone HTTP server. Best for non-Python apps or tools that only support base URL configuration (Claude Code, Cursor).
+The Headroom proxy is a standalone HTTP server. Best for non-Python apps or tools that only support base URL configuration (Claude Code, Cursor, GitHub Copilot CLI).
 
 ```bash
 pip install "headroom-ai[all]"
@@ -193,9 +193,20 @@ headroom proxy --port 8787
 # Claude Code
 ANTHROPIC_BASE_URL=http://localhost:8787 claude
 
+# GitHub Copilot CLI
+headroom wrap copilot -- --model claude-sonnet-4-20250514
+
 # Cursor / Any OpenAI client
 OPENAI_BASE_URL=http://localhost:8787/v1 cursor
 ```
+
+For translated backends, the Copilot wrapper can switch to Headroom's OpenAI-compatible route:
+
+```bash
+headroom wrap copilot --backend anyllm --anyllm-provider groq -- --model gpt-4o
+```
+
+By default, `headroom wrap copilot` installs `rtk` and appends token-optimized shell guidance to `.github/copilot-instructions.md` so Copilot sessions reuse the same command-saving conventions as other wrapped agent CLIs. Use `--no-rtk` to skip that step.
 
 ### With Cloud Providers
 

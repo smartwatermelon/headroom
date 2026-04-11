@@ -57,6 +57,7 @@ def test_health_preserves_backwards_compatible_config_payload(client):
     assert data["status"] == "healthy"
     assert data["ready"] is True
     assert data["config"] == {
+        "backend": "anthropic",
         "optimize": False,
         "cache": False,
         "rate_limit": False,

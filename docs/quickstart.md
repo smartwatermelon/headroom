@@ -41,7 +41,7 @@ headroom proxy --port 8787
 
 ```bash
 curl http://localhost:8787/health
-# Expected: {"status": "healthy", "mode": "optimize", ...}
+# Expected: {"status":"healthy","ready":true,"config":{"backend":"anthropic",...},...}
 ```
 
 ### Step 3: Point Your Client
@@ -49,6 +49,9 @@ curl http://localhost:8787/health
 ```bash
 # Claude Code
 ANTHROPIC_BASE_URL=http://localhost:8787 claude
+
+# GitHub Copilot CLI (default Anthropic-style proxy route)
+headroom wrap copilot -- --model claude-sonnet-4-20250514
 
 # Cursor / Continue / any OpenAI client
 OPENAI_BASE_URL=http://localhost:8787/v1 your-app

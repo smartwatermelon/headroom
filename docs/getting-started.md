@@ -41,6 +41,9 @@ Then point your LLM client at it:
 # Claude Code
 ANTHROPIC_BASE_URL=http://localhost:8787 claude
 
+# GitHub Copilot CLI (default Anthropic-style proxy route)
+headroom wrap copilot -- --model claude-sonnet-4-20250514
+
 # OpenAI-compatible clients
 OPENAI_BASE_URL=http://localhost:8787/v1 your-app
 ```
