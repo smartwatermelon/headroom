@@ -155,7 +155,7 @@ function Invoke-HeadroomDocker {
     param([string[]]$Arguments)
 
     $dockerArgs = New-Object System.Collections.Generic.List[string]
-    $dockerArgs.AddRange(@('run','--rm','-it'))
+    $dockerArgs.AddRange([string[]]@('run','--rm','-it'))
     $dockerArgs.AddRange((Get-SharedDockerArgs))
     $dockerArgs.Add('--entrypoint')
     $dockerArgs.Add('headroom')
@@ -201,7 +201,7 @@ function Start-ProxyContainer {
 
     $containerName = "headroom-proxy-$Port-$PID"
     $dockerArgs = New-Object System.Collections.Generic.List[string]
-    $dockerArgs.AddRange(@('run','-d','--rm','--name',$containerName,'-p',"$Port`:$Port"))
+    $dockerArgs.AddRange([string[]]@('run','-d','--rm','--name',$containerName,'-p',"$Port`:$Port"))
     $dockerArgs.AddRange((Get-SharedDockerArgs))
     $dockerArgs.Add($HeadroomImage)
     $dockerArgs.Add('--host')
@@ -269,6 +269,9 @@ function Test-HelpFlag {
     param([string[]]$Arguments)
 
     foreach ($arg in $Arguments) {
+        if ($arg -eq '--') {
+            break
+        }
         if ($arg -eq '--help' -or $arg -eq '-?') {
             return $true
         }
@@ -481,12 +484,12 @@ function Invoke-OpenClawPrepareEntryJson {
     )
 
     $dockerArgs = New-Object System.Collections.Generic.List[string]
-    $dockerArgs.AddRange(@('run','--rm'))
+    $dockerArgs.AddRange([string[]]@('run','--rm'))
     $dockerArgs.AddRange((Get-SharedDockerArgs))
     $dockerArgs.Add('--entrypoint')
     $dockerArgs.Add('headroom')
     $dockerArgs.Add($HeadroomImage)
-    $dockerArgs.AddRange(@('wrap','openclaw','--prepare-only','--proxy-port',"$($Parsed.ProxyPort)",'--startup-timeout-ms',"$($Parsed.StartupTimeoutMs)"))
+    $dockerArgs.AddRange([string[]]@('wrap','openclaw','--prepare-only','--proxy-port',"$($Parsed.ProxyPort)",'--startup-timeout-ms',"$($Parsed.StartupTimeoutMs)"))
     if ($ExistingEntryJson) {
         $dockerArgs.Add('--existing-entry-json')
         $dockerArgs.Add($ExistingEntryJson)
@@ -515,12 +518,12 @@ function Invoke-OpenClawPrepareUnwrapEntryJson {
     param([string]$ExistingEntryJson)
 
     $dockerArgs = New-Object System.Collections.Generic.List[string]
-    $dockerArgs.AddRange(@('run','--rm'))
+    $dockerArgs.AddRange([string[]]@('run','--rm'))
     $dockerArgs.AddRange((Get-SharedDockerArgs))
     $dockerArgs.Add('--entrypoint')
     $dockerArgs.Add('headroom')
     $dockerArgs.Add($HeadroomImage)
-    $dockerArgs.AddRange(@('unwrap','openclaw','--prepare-only'))
+    $dockerArgs.AddRange([string[]]@('unwrap','openclaw','--prepare-only'))
     if ($ExistingEntryJson) {
         $dockerArgs.Add('--existing-entry-json')
         $dockerArgs.Add($ExistingEntryJson)
@@ -883,14 +886,14 @@ function Invoke-PrepareOnly {
     )
 
     $dockerArgs = New-Object System.Collections.Generic.List[string]
-    $dockerArgs.AddRange(@('run','--rm','-it'))
+    $dockerArgs.AddRange([string[]]@('run','--rm','-it'))
     $dockerArgs.AddRange((Get-SharedDockerArgs))
     $dockerArgs.Add('--env')
     $dockerArgs.Add("HEADROOM_RTK_TARGET=$(Get-RtkTarget)")
     $dockerArgs.Add('--entrypoint')
     $dockerArgs.Add('headroom')
     $dockerArgs.Add($HeadroomImage)
-    $dockerArgs.AddRange(@('wrap',$Tool,'--prepare-only'))
+    $dockerArgs.AddRange([string[]]@('wrap',$Tool,'--prepare-only'))
     foreach ($arg in $KnownArgs) {
         $dockerArgs.Add($arg)
     }
@@ -910,6 +913,11 @@ if ($args.Count -eq 0) {
 
 switch ($args[0]) {
     'wrap' {
+        if ($args.Count -eq 1 -or $args[1] -eq '--help' -or $args[1] -eq '-?') {
+            Invoke-HeadroomDocker -Arguments @('wrap','--help')
+            exit 0
+        }
+
         if ($args.Count -lt 2) {
             Fail 'Usage: headroom wrap <claude|codex|aider|cursor|openclaw> [...]'
         }
@@ -928,12 +936,18 @@ switch ($args[0]) {
             exit 0
         }
 
+        if (Test-HelpFlag -Arguments $wrapArgs) {
+            $helpArgs = @('wrap', $tool) + $wrapArgs
+            Invoke-HeadroomDocker -Arguments $helpArgs
+            exit 0
+        }
+
         $parsed = Parse-WrapArgs -Arguments $wrapArgs
         $proxyArgs = New-Object System.Collections.Generic.List[string]
         if ($parsed.Learn) { $proxyArgs.Add('--learn') }
-        if ($parsed.Backend) { $proxyArgs.AddRange(@('--backend', $parsed.Backend)) }
-        if ($parsed.Anyllm) { $proxyArgs.AddRange(@('--anyllm-provider', $parsed.Anyllm)) }
-        if ($parsed.Region) { $proxyArgs.AddRange(@('--region', $parsed.Region)) }
+        if ($parsed.Backend) { $proxyArgs.AddRange([string[]]@('--backend', $parsed.Backend)) }
+        if ($parsed.Anyllm) { $proxyArgs.AddRange([string[]]@('--anyllm-provider', $parsed.Anyllm)) }
+        if ($parsed.Region) { $proxyArgs.AddRange([string[]]@('--region', $parsed.Region)) }
 
         switch ($tool) {
             'claude' { }
@@ -990,6 +1004,11 @@ switch ($args[0]) {
         }
     }
     'unwrap' {
+        if ($args.Count -eq 1 -or $args[1] -eq '--help' -or $args[1] -eq '-?') {
+            Invoke-HeadroomDocker -Arguments @('unwrap','--help')
+            exit 0
+        }
+
         if ($args.Count -ge 2 -and $args[1] -eq 'openclaw') {
             $unwrapArgs = if ($args.Count -gt 2) { $args[2..($args.Count - 1)] } else { @() }
             if (Test-HelpFlag -Arguments $unwrapArgs) {
@@ -1019,7 +1038,7 @@ switch ($args[0]) {
         }
 
         $dockerArgs = New-Object System.Collections.Generic.List[string]
-        $dockerArgs.AddRange(@('run','--rm','-it','-p',"$port`:$port"))
+        $dockerArgs.AddRange([string[]]@('run','--rm','-it','-p',"$port`:$port"))
         $dockerArgs.AddRange((Get-SharedDockerArgs))
         $dockerArgs.Add('--entrypoint')
         $dockerArgs.Add('headroom')

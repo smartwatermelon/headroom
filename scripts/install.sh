@@ -133,7 +133,7 @@ append_common_container_args() {
     ref+=(--user "$(id -u):$(id -g)")
   fi
 
-  append_passthrough_envs ref
+  append_passthrough_envs "$1"
 }
 
 append_tty_args() {
@@ -341,6 +341,9 @@ run_host_tool() {
 contains_help_flag() {
   local arg
   for arg in "$@"; do
+    if [[ "${arg}" == "--" ]]; then
+      break
+    fi
     if [[ "${arg}" == "--help" || "${arg}" == "-?" ]]; then
       return 0
     fi
@@ -793,6 +796,11 @@ main() {
 
   case "$1" in
     wrap)
+      if (($# == 1)) || [[ "$2" == "--help" || "$2" == "-?" ]]; then
+        run_headroom wrap --help
+        return
+      fi
+
       (($# >= 2)) || die "Usage: headroom wrap <claude|codex|aider|cursor|openclaw> [...]"
       local tool="$2"
       shift 2
@@ -803,6 +811,11 @@ main() {
           return
         fi
         wrap_openclaw_host "$@"
+        return
+      fi
+
+      if contains_help_flag "$@"; then
+        run_headroom wrap "${tool}" "$@"
         return
       fi
 
@@ -874,6 +887,11 @@ EOF
       esac
       ;;
     unwrap)
+      if (($# == 1)) || [[ "$2" == "--help" || "$2" == "-?" ]]; then
+        run_headroom unwrap --help
+        return
+      fi
+
       if (($# >= 2)) && [[ "$2" == "openclaw" ]]; then
         shift 2
         if contains_help_flag "$@"; then
