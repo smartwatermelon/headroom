@@ -27,10 +27,10 @@ def _get_litellm_module() -> Any | None:
     """Import LiteLLM only when pricing data is actually requested."""
     global litellm
 
-    if litellm is not None:
-        return litellm
     if not LITELLM_AVAILABLE:
         return None
+    if litellm is not None:
+        return litellm
 
     try:
         import litellm as imported_litellm
