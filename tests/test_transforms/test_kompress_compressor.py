@@ -199,6 +199,151 @@ class TestKompressTransformInterface:
             assert result.messages[0]["content"] == long_text
 
 
+# ── compress_batch ──────────────────────────────────────────────────────
+
+
+class TestKompressCompressorBatch:
+    """Tests for the batched compression API (compress_batch).
+
+    These exercise the non-model paths — passthrough handling, argument
+    validation, order preservation, and fallback behavior on model-load
+    failure. The actual batched inference path is covered by integration
+    tests that require the model to be downloaded.
+    """
+
+    def test_empty_batch_returns_empty_list(self) -> None:
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        result = compressor.compress_batch([])
+        assert result == []
+
+    def test_all_short_texts_passthrough_without_model(self) -> None:
+        """Texts under 10 words must passthrough; model never loaded."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        contents = ["hello", "world", "short text here"]
+
+        with patch(
+            "headroom.transforms.kompress_compressor._load_kompress",
+            side_effect=AssertionError("model should not be loaded for short texts"),
+        ):
+            results = compressor.compress_batch(contents)
+
+        assert len(results) == 3
+        for i, r in enumerate(results):
+            assert r.compressed == contents[i]
+            assert r.compression_ratio == 1.0
+
+    def test_order_preserved(self) -> None:
+        """Output order must match input order even when model load fails."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        long_texts = [
+            " ".join(f"alpha{i}" for i in range(20)),
+            " ".join(f"beta{i}" for i in range(20)),
+            " ".join(f"gamma{i}" for i in range(20)),
+        ]
+
+        with patch(
+            "headroom.transforms.kompress_compressor._load_kompress",
+            side_effect=RuntimeError("no model"),
+        ):
+            results = compressor.compress_batch(long_texts)
+
+        assert len(results) == 3
+        assert results[0].original.startswith("alpha0")
+        assert results[1].original.startswith("beta0")
+        assert results[2].original.startswith("gamma0")
+
+    def test_mixed_short_and_long_passthrough_on_model_failure(self) -> None:
+        """Short texts passthrough; long texts fall back to passthrough on model failure."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        contents = [
+            "short",
+            " ".join(f"word{i}" for i in range(20)),  # triggers model path
+            "also short",
+        ]
+
+        with patch(
+            "headroom.transforms.kompress_compressor._load_kompress",
+            side_effect=RuntimeError("no model"),
+        ):
+            results = compressor.compress_batch(contents)
+
+        assert len(results) == 3
+        assert results[0].compressed == "short"
+        assert results[0].compression_ratio == 1.0
+        assert results[1].compression_ratio == 1.0  # passthrough fallback
+        assert results[2].compressed == "also short"
+
+    def test_ratio_list_length_mismatch_raises(self) -> None:
+        """If target_ratio is a list it must match contents length."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        contents = ["a b c", "d e f"]
+
+        # Too short
+        try:
+            compressor.compress_batch(contents, target_ratio=[0.5])
+            raise AssertionError("expected ValueError for length mismatch")
+        except ValueError as e:
+            assert "length" in str(e).lower()
+
+        # Too long
+        try:
+            compressor.compress_batch(contents, target_ratio=[0.5, 0.5, 0.5])
+            raise AssertionError("expected ValueError for length mismatch")
+        except ValueError as e:
+            assert "length" in str(e).lower()
+
+    def test_batch_of_one_equivalent_to_single_compress_on_short_text(self) -> None:
+        """Batch-of-one with short text should produce identical passthrough."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        text = "hello world"
+
+        single = compressor.compress(text)
+        batch = compressor.compress_batch([text])
+
+        assert len(batch) == 1
+        assert batch[0].compressed == single.compressed
+        assert batch[0].compression_ratio == single.compression_ratio
+        assert batch[0].original_tokens == single.original_tokens
+
+    def test_uniform_ratio_scalar(self) -> None:
+        """A scalar target_ratio must apply to every text in the batch."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        # Short texts — passthrough regardless of ratio
+        contents = ["short a", "short b", "short c"]
+
+        results = compressor.compress_batch(contents, target_ratio=0.3)
+
+        assert len(results) == 3
+        for r, original in zip(results, contents, strict=True):
+            assert r.compressed == original  # short passthrough
+
+    def test_per_item_ratio_list_with_nones(self) -> None:
+        """A list of ratios with some None entries must be accepted."""
+        from headroom.transforms.kompress_compressor import KompressCompressor
+
+        compressor = KompressCompressor()
+        contents = ["short a", "short b", "short c"]
+        ratios: list[float | None] = [0.5, None, 0.25]
+
+        # Short texts always passthrough; validating the list shape alone.
+        results = compressor.compress_batch(contents, target_ratio=ratios)
+        assert len(results) == 3
+
+
 # ── unload_kompress_model ───────────────────────────────────────────────
 
 
