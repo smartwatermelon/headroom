@@ -171,7 +171,7 @@ jobs:
           npm version ${{ needs.detect-version.outputs.version }} --no-git-tag-version
           npm publish --access public
 
-      - name: Publish plugins/openclaw
+      - name: Publish openclaw to npmjs.org
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -180,8 +180,38 @@ jobs:
           npm version ${{ needs.detect-version.outputs.version }} --no-git-tag-version
           npm publish --access public
 
+  publish-github-packages:
+    needs: [build]
+    if: github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://npm.pkg.github.com
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish openclaw to GitHub Package Registry
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd plugins/openclaw
+          npm install
+          npm version ${{ needs.detect-version.outputs.version }} --no-git-tag-version
+          npm publish --access public
+
   create-release:
-    needs: [detect-version, build]
+    needs: [detect-version, build, publish-npm, publish-github-packages]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
