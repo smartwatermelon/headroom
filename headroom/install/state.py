@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from dataclasses import asdict
 
 from .models import ArtifactRecord, DeploymentManifest, ManagedMutation, iso_utc_now
 from .paths import deploy_root, manifest_path, profile_root
 
+logger = logging.getLogger(__name__)
+
 
 def save_manifest(manifest: DeploymentManifest) -> None:
-    """Persist a deployment manifest to disk."""
+    """Persist a deployment manifest to disk.
 
-    root = profile_root(manifest.profile)
-    root.mkdir(parents=True, exist_ok=True)
-    manifest.updated_at = iso_utc_now()
-    path = manifest_path(manifest.profile)
-    path.write_text(json.dumps(asdict(manifest), indent=2) + "\n")
+    Gracefully handles read-only filesystems by logging a warning
+    instead of crashing.
+    """
+    try:
+        root = profile_root(manifest.profile)
+        root.mkdir(parents=True, exist_ok=True)
+        manifest.updated_at = iso_utc_now()
+        path = manifest_path(manifest.profile)
+        path.write_text(json.dumps(asdict(manifest), indent=2) + "\n")
+    except OSError as e:
+        logger.warning("Cannot save deployment manifest: %s — continuing without persistence", e)
 
 
 def load_manifest(profile: str = "default") -> DeploymentManifest | None:

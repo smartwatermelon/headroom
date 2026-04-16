@@ -1174,11 +1174,11 @@ class ToolIntelligenceNetwork:
             canonical = "null"
         elif isinstance(value, bool):
             canonical = "true" if value else "false"
-        elif isinstance(value, (int, float)):
+        elif isinstance(value, int | float):
             canonical = str(value)
         elif isinstance(value, str):
             canonical = value
-        elif isinstance(value, (list, dict)):
+        elif isinstance(value, list | dict):
             # For complex types, use JSON serialization
             try:
                 canonical = json.dumps(value, sort_keys=True, default=str)
@@ -1573,6 +1573,8 @@ def _create_default_toin_backend() -> Any:
     backend_type = (os.environ.get(TOIN_BACKEND_ENV_VAR) or "").strip().lower()
     if not backend_type or backend_type == "filesystem":
         return None
+    if backend_type == "none":
+        return None  # Explicit in-memory-only (e.g. --stateless mode)
     try:
         from importlib.metadata import entry_points
 

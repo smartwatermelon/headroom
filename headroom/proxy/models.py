@@ -207,3 +207,6 @@ class ProxyConfig:
     subscription_tracking_enabled: bool = True
     subscription_poll_interval_s: int = 10
     subscription_active_window_s: int = 60
+
+    # Stateless mode — disable all filesystem writes for read-only / container deployments
+    stateless: bool = False

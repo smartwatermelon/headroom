@@ -8,6 +8,7 @@ Extracted from server.py for maintainability.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections import deque
 from dataclasses import asdict
@@ -19,11 +20,15 @@ if TYPE_CHECKING:
 
 from headroom.proxy.models import RequestLog
 
+logger = logging.getLogger(__name__)
+
 
 class RequestLogger:
     """Log requests to JSONL file.
 
     Uses a deque with max 10,000 entries to prevent unbounded memory growth.
+    Gracefully degrades to in-memory-only if the log file cannot be written
+    (read-only filesystem, permissions error, etc.).
     """
 
     MAX_LOG_ENTRIES = 10_000
@@ -35,19 +40,30 @@ class RequestLogger:
         self._logs: deque[RequestLog] = deque(maxlen=self.MAX_LOG_ENTRIES)
 
         if self.log_file:
-            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.warning(
+                    "Cannot create log directory %s: %s — logging to memory only",
+                    self.log_file.parent,
+                    e,
+                )
+                self.log_file = None
 
     def log(self, entry: RequestLog):
         """Log a request. Oldest entries are automatically removed when limit reached."""
         self._logs.append(entry)
 
         if self.log_file:
-            with open(self.log_file, "a") as f:
-                log_dict = asdict(entry)
-                if not self.log_full_messages:
-                    log_dict.pop("request_messages", None)
-                    log_dict.pop("response_content", None)
-                f.write(json.dumps(log_dict) + "\n")
+            try:
+                with open(self.log_file, "a") as f:
+                    log_dict = asdict(entry)
+                    if not self.log_full_messages:
+                        log_dict.pop("request_messages", None)
+                        log_dict.pop("response_content", None)
+                    f.write(json.dumps(log_dict) + "\n")
+            except OSError:
+                pass  # Graceful degradation: memory-only logging continues
 
     def get_recent(self, n: int = 100) -> list[dict]:
         """Get recent log entries."""

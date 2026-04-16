@@ -179,6 +179,13 @@ from .main import main
     is_flag=True,
     help="Disable anonymous usage telemetry (env: HEADROOM_TELEMETRY=off)",
 )
+@click.option(
+    "--stateless",
+    is_flag=True,
+    help="Disable all filesystem writes — run purely in-memory. "
+    "For containerized / read-only / load-balanced deployments. "
+    "(env: HEADROOM_STATELESS=true)",
+)
 @click.pass_context
 def proxy(
     ctx: click.Context,
@@ -213,6 +220,7 @@ def proxy(
     bedrock_region: str | None,
     bedrock_profile: str | None,
     no_telemetry: bool,
+    stateless: bool,
 ) -> None:
     """Start the optimization proxy server.
 
@@ -251,9 +259,21 @@ def proxy(
         mode or os.environ.get("HEADROOM_MODE") or PROXY_MODE_TOKEN
     )
 
+    # Stateless mode: CLI flag or env var
+    is_stateless = stateless or os.environ.get("HEADROOM_STATELESS", "").lower() in (
+        "true",
+        "1",
+        "yes",
+        "on",
+    )
+
     # Telemetry opt-out: --no-telemetry flag sets the env var
     if no_telemetry:
         os.environ["HEADROOM_TELEMETRY"] = "off"
+
+    # Stateless mode: suppress TOIN filesystem persistence
+    if is_stateless:
+        os.environ["HEADROOM_TOIN_BACKEND"] = "none"
 
     # License key for managed/enterprise deployments (optional)
     license_key = os.environ.get("HEADROOM_LICENSE_KEY")
@@ -272,7 +292,7 @@ def proxy(
         connect_timeout_seconds=connect_timeout_seconds
         if connect_timeout_seconds is not None
         else 10,
-        log_file=log_file,
+        log_file=None if is_stateless else log_file,
         budget_limit_usd=budget,
         # Code graph: live file watcher for incremental reindexing
         code_graph_watcher=code_graph,
@@ -284,13 +304,15 @@ def proxy(
         intelligent_context_compress_first=not no_compress_first,
         # Memory System (Multi-Provider with auto-detection)
         # --learn implies --memory (need backend for storing patterns)
-        memory_enabled=memory or (learn and not no_learn),
+        # Stateless mode disables memory (requires SQLite on disk)
+        memory_enabled=False if is_stateless else (memory or (learn and not no_learn)),
         memory_db_path=memory_db_path,
         memory_inject_tools=not no_memory_tools,
         memory_inject_context=not no_memory_context,
         memory_top_k=memory_top_k,
         # Traffic Learning: only with --learn, never with --no-learn
-        traffic_learning_enabled=learn and not no_learn,
+        # Stateless mode disables learning (requires filesystem)
+        traffic_learning_enabled=False if is_stateless else (learn and not no_learn),
         traffic_learning_agent_type=os.environ.get("HEADROOM_AGENT_TYPE", "unknown"),
         # Backend (Anthropic direct, Bedrock, LiteLLM, or any-llm)
         backend=backend,
@@ -299,6 +321,8 @@ def proxy(
         anyllm_provider=effective_anyllm_provider,
         # License / Usage Reporting (managed/enterprise)
         license_key=license_key,
+        # Stateless mode: disable all filesystem writes
+        stateless=is_stateless,
     )
 
     memory_status = "DISABLED"
@@ -355,6 +379,13 @@ Memory (Multi-Provider):
   - Database: {config.memory_db_path}
 """
 
+    # Stateless mode warning
+    stateless_line = ""
+    if is_stateless:
+        stateless_line = (
+            "  Stateless:    YES (no filesystem writes — memory, logs, TOIN disabled)\n"
+        )
+
     from headroom.telemetry.beacon import is_telemetry_enabled
 
     # Build telemetry section for the startup banner
@@ -381,7 +412,7 @@ Starting proxy server...
   Rate Limit:   {"ENABLED" if config.rate_limit_enabled else "DISABLED"}
   Memory:       {memory_status}
   License:      {license_status}
-{telemetry_line}
+{stateless_line}{telemetry_line}
 {backend_section}
 Routing:
   /v1/messages         → {anthropic_url}
