@@ -235,7 +235,14 @@ jobs:
           path: dist/
 
       - name: Publish ${{ env.PYPI_PACKAGE }} to PyPI
+        id: pypi-publish
         uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true
+
+      - name: PyPI publish notice
+        if: steps.pypi-publish.outcome == 'failure'
+        run: |
+          echo "::notice::PyPI publish skipped — OIDC trusted publisher not configured for this repo. See: https://pypi.org/trusted-publishers/ — Set PYPI_SKIP=true in repo Variables to suppress this notice."
 
   publish-npm:
     needs: [build]
@@ -259,6 +266,7 @@ jobs:
           path: dist/
 
       - name: Publish ${{ env.NPM_SDK_PACKAGE }} (TypeScript SDK) to npmjs.org
+        id: npm-sdk-publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -267,8 +275,10 @@ jobs:
           npm run build
           npm version ${{ needs.detect-version.outputs.npm_version }} --no-git-tag-version
           npm publish --access public
+        continue-on-error: true
 
       - name: Publish ${{ env.NPM_OPENCLAW_PACKAGE }} to npmjs.org
+        id: npm-openclaw-publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -277,6 +287,12 @@ jobs:
           npm run build
           npm version ${{ needs.detect-version.outputs.npm_version }} --no-git-tag-version
           npm publish --access public
+        continue-on-error: true
+
+      - name: npm publish notice
+        if: steps.npm-sdk-publish.outcome == 'failure' || steps.npm-openclaw-publish.outcome == 'failure'
+        run: |
+          echo "::notice::One or more npm publishes failed. Set NPM_SKIP=true in repo Variables to skip both npm publishes if tokens are not configured."
 
   publish-github-packages:
     needs: [build]
@@ -300,6 +316,7 @@ jobs:
           path: dist/
 
       - name: Publish ${{ env.NPM_OPENCLAW_PACKAGE }} to GitHub Package Registry
+        id: gpr-publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -308,6 +325,12 @@ jobs:
           npm run build
           npm version ${{ needs.detect-version.outputs.npm_version }} --no-git-tag-version
           npm publish --access public --registry ${{ env.GITHUB_PACKAGES_REGISTRY_URL }}
+        continue-on-error: true
+
+      - name: GPR publish notice
+        if: steps.gpr-publish.outcome == 'failure'
+        run: |
+          echo "::notice::GitHub Package Registry publish failed. Check GITHUB_TOKEN permissions and registry configuration. Set GITHUB_PKG_SKIP=true to skip."
 
   create-release:
     needs: [detect-version, build]
