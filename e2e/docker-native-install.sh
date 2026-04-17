@@ -85,3 +85,11 @@ curl --fail --silent "http://127.0.0.1:${PORT}/readyz" >/dev/null
 
 "${WRAPPER}" install remove --profile "${PROFILE}"
 [[ ! -e "${HOME}/.headroom/deploy/${PROFILE}" ]]
+
+# TODO(issue-175): verify HEADROOM_WORKSPACE_DIR / HEADROOM_CONFIG_DIR make it
+# into the container's env. The wrapper test installs and tears down so the
+# container is gone by the time we could `docker exec`. A follow-up change
+# should assert on the `docker inspect` env list after `install apply` but
+# before `install stop`. Unit tests in tests/test_install/test_runtime.py and
+# tests/test_install/test_native_installers.py already lock the install-time
+# env-forwarding; this e2e hop is nice-to-have, not blocking.
