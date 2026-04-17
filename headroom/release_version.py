@@ -11,6 +11,14 @@ from pathlib import Path
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$")
+CONVENTIONAL_COMMIT_RE = re.compile(
+    r"^(feat|fix|ci|chore|perf|refactor|docs|style|test)(\(.+\))?(!)?:\s*(.+)$"
+)
+BREAKING_CHANGE_RE = re.compile(r"^BREAKING CHANGE:\s*(.+)$", re.MULTILINE)
+FIELD_SEP = "\x1f"
+RECORD_SEP = "\x1e"
+GIT_LOG_FORMAT = "%s%x1f%b%x1e"
+BUMP_PRIORITY = {"patch": 0, "minor": 1, "major": 2}
 
 
 @dataclass(frozen=True, order=True)
@@ -72,6 +80,14 @@ class ReleaseTag:
     raw: str = ""
 
 
+@dataclass(frozen=True)
+class CommitInfo:
+    """Commit subject/body pair used for bump detection."""
+
+    subject: str
+    body: str = ""
+
+
 def parse_release_tag(tag: str) -> ReleaseTag:
     """Parse a release tag, preserving legacy fourth-component ordering."""
 
@@ -103,6 +119,53 @@ def find_latest_release_tag(tags: Sequence[str]) -> str | None:
         return None
     candidates.sort(reverse=True)
     return candidates[0].raw
+
+
+def _merge_summary(subject: str, body: str) -> str:
+    """Return the first meaningful body line for merge commits."""
+
+    if not subject.startswith("Merge "):
+        return ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def classify_commit_bump(commit: CommitInfo) -> str:
+    """Classify one commit using conventional commit semantics."""
+
+    merge_summary = _merge_summary(commit.subject, commit.body)
+    candidates = [commit.subject]
+    if merge_summary:
+        candidates.insert(0, merge_summary)
+
+    has_breaking_change = bool(BREAKING_CHANGE_RE.search(commit.body))
+    for candidate in candidates:
+        match = CONVENTIONAL_COMMIT_RE.match(candidate)
+        if not match:
+            continue
+        if has_breaking_change or bool(match.group(3)):
+            return "major"
+        if match.group(1) == "feat":
+            return "minor"
+        return "patch"
+
+    if has_breaking_change:
+        return "major"
+    return "patch"
+
+
+def determine_bump_level(commits: Sequence[CommitInfo]) -> str:
+    """Return the highest required bump across a commit range."""
+
+    level = "patch"
+    for commit in commits:
+        candidate = classify_commit_bump(commit)
+        if BUMP_PRIORITY[candidate] > BUMP_PRIORITY[level]:
+            level = candidate
+    return level
 
 
 def compute_release_version(
@@ -167,6 +230,33 @@ def list_release_tags(root: Path) -> list[str]:
     return [tag.strip() for tag in result.stdout.splitlines() if tag.strip()]
 
 
+def list_release_commits(root: Path, previous_tag: str) -> list[CommitInfo]:
+    """List commit subject/body pairs since the previous release tag."""
+
+    cmd = ["git", "log", "--first-parent", f"--pretty=format:{GIT_LOG_FORMAT}"]
+    if previous_tag:
+        cmd.append(f"{previous_tag}..HEAD")
+    else:
+        cmd.append("HEAD")
+
+    result = subprocess.run(
+        cmd,
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    commits: list[CommitInfo] = []
+    for raw_entry in result.stdout.split(RECORD_SEP):
+        entry = raw_entry.strip()
+        if not entry or FIELD_SEP not in entry:
+            continue
+        subject, body = entry.split(FIELD_SEP, 1)
+        commits.append(CommitInfo(subject=subject.strip(), body=body.strip()))
+    return commits
+
+
 def commit_height_since(root: Path, previous_tag: str) -> str:
     """Count commits since the previous release tag for changelog/debug outputs."""
 
@@ -194,12 +284,16 @@ def write_github_outputs(info: ReleaseVersionInfo, output_path: str) -> None:
 def main() -> None:
     root = Path.cwd()
     manual_version = os.environ.get("MANUAL_VER", "").strip()
-    level = os.environ.get("LEVEL", "patch").strip() or "patch"
+    tags = list_release_tags(root)
+    previous_tag = find_latest_release_tag(tags) or ""
+    level = os.environ.get("LEVEL", "").strip()
+    if not level:
+        level = determine_bump_level(list_release_commits(root, previous_tag))
 
     info = compute_release_version(
         canonical_version=get_canonical_version(root),
         level=level,
-        tags=list_release_tags(root),
+        tags=tags,
         manual_version=manual_version,
     )
     info = replace(info, height=commit_height_since(root, info.previous_tag))

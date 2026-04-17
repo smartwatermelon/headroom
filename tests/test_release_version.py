@@ -8,8 +8,12 @@ from pathlib import Path
 import pytest
 
 from headroom.release_version import (
+    CommitInfo,
+    classify_commit_bump,
     compute_release_version,
+    determine_bump_level,
     find_latest_release_tag,
+    list_release_commits,
     normalize_release_tag,
     parse_release_tag,
 )
@@ -99,6 +103,46 @@ def test_parse_release_tag_preserves_legacy_height_for_sorting() -> None:
     tag = parse_release_tag("v0.5.25.3")
     assert str(tag.version) == "0.5.25"
     assert tag.legacy_height == 3
+
+
+def test_classify_commit_bump_treats_breaking_change_as_major() -> None:
+    assert (
+        classify_commit_bump(
+            CommitInfo(subject="fix(api)!: change response shape", body=""),
+        )
+        == "major"
+    )
+
+
+def test_determine_bump_level_uses_greatest_commit_level() -> None:
+    commits = [
+        CommitInfo(subject="fix: patch one", body=""),
+        CommitInfo(subject="feat: add capability", body=""),
+        CommitInfo(subject="chore: maintenance", body=""),
+    ]
+
+    assert determine_bump_level(commits) == "minor"
+
+
+def test_determine_bump_level_prefers_major_over_minor_and_patch() -> None:
+    commits = [
+        CommitInfo(subject="fix: patch one", body=""),
+        CommitInfo(subject="feat: add capability", body=""),
+        CommitInfo(
+            subject="docs: update migration guide",
+            body="BREAKING CHANGE: the API changed",
+        ),
+    ]
+
+    assert determine_bump_level(commits) == "major"
+
+
+def test_list_release_commits_returns_first_parent_range() -> None:
+    commits = list_release_commits(ROOT, "")
+
+    assert commits
+    assert isinstance(commits[0], CommitInfo)
+    assert commits[0].subject
 
 
 def test_release_version_script_runs_directly_without_importing_headroom_package(

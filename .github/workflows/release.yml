@@ -61,36 +61,16 @@ jobs:
       height: ${{ steps.ver.outputs.height }}
       bump: ${{ steps.ver.outputs.bump }}
       previous_tag: ${{ steps.ver.outputs.previous_tag }}
-      commit_message: ${{ steps.bump.outputs.commit_message }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Detect bump level
-        id: bump
-        run: |
-          python - <<'PYEOF'
-          import subprocess, os, re
-
-          msg = subprocess.run(["git", "log", "-1", "--format=%s"], capture_output=True, text=True, check=False).stdout.strip()
-          body = subprocess.run(["git", "log", "-1", "--format=%B"], capture_output=True, text=True, check=False).stdout.strip()
-
-          is_major = bool(re.search(r'^feat!', msg)) or "BREAKING CHANGE" in body
-          is_minor = bool(re.search(r'^feat:', msg)) and not is_major
-          level = "major" if is_major else ("minor" if is_minor else "patch")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"commit_message={msg}\n")
-              f.write(f"level={level}\n")
-          PYEOF
 
       - name: Compute semantic version from canonical + release history
         id: ver
         run: |
           python headroom/release_version.py
         env:
-          LEVEL: ${{ steps.bump.outputs.level }}
           MANUAL_VER: ${{ github.event.inputs.version }}
 
   build:
