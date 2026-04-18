@@ -185,7 +185,7 @@ winget install actionlint
 ### Dry-run Test
 
 ```bash
-act -W .github/workflows/release.yml -e .github/act/dry-run.json
+act workflow_dispatch -W .github/workflows/release.yml -e .github/act/dry-run.json
 ```
 
 This runs the full workflow end-to-end with `dry_run=true`, skipping all publish steps.
@@ -193,10 +193,18 @@ This runs the full workflow end-to-end with `dry_run=true`, skipping all publish
 ### Test a Specific Commit Type
 
 ```bash
-act -W .github/workflows/release.yml -e .github/act/push-feat.json
+act push -W .github/workflows/release.yml -e .github/act/push-feat.json
 ```
 
 The `push-feat.json` event file simulates a `feat:` commit on `main`.
+
+### Validate the Release and Docker Workflows
+
+```bash
+bash scripts/validate-workflows.sh
+```
+
+This runs `actionlint` plus `act -n` against the release and Docker workflows using the checked-in `.github/act/*.json` event fixtures. CI runs the same script in the `workflow-validation` job so branch changes to release automation are validated before merge.
 
 ### Local Secrets
 
@@ -220,6 +228,8 @@ cp .env.act.example .env.act
 | `scripts/verify-versions.py` | Pre-release version alignment check |
 | `.github/act/dry-run.json` | `act` event file for dry-run testing |
 | `.github/act/push-feat.json` | `act` event file for feat commit testing |
+| `.github/act/docker-version.json` | `act` event file for Docker workflow validation |
+| `scripts/validate-workflows.sh` | Shared `actionlint` + `act -n` workflow validation script |
 | `.actrc` | Default `act` flags (Ubuntu runner, reuse, quiet) |
 | `.actrc.local.example` | Local `act` override template |
 

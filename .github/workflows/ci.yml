@@ -223,3 +223,21 @@ jobs:
       - uses: wagoid/commitlint-github-action@v5
         with:
           configFile: .commitlintrc.json
+
+  workflow-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          sudo mv ./actionlint /usr/local/bin/actionlint
+
+      - name: Install act
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+
+      - name: Validate workflow files
+        run: |
+          bash scripts/validate-workflows.sh
