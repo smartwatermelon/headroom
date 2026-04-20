@@ -1189,6 +1189,13 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Third-party proxy extensions (Enterprise, custom plugins). Discovered via
+    # the `headroom.proxy_extension` entry-point group. An extension that raises
+    # from its install() is a deliberate fail-closed signal and aborts startup.
+    from headroom.proxy.extensions import install_all as _install_extensions
+
+    _install_extensions(app, config)
+
     # Health & Metrics
     @app.get("/livez")
     async def livez():

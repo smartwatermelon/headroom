@@ -306,6 +306,10 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
+markers = [
+    "slow: slow tests (model loads, large fixtures)",
+    "real_llm: tests that hit real LLM APIs; skipped unless explicitly enabled",
+]
 
 [tool.coverage.run]
 source = ["headroom"]
