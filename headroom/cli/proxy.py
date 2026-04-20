@@ -44,6 +44,14 @@ from .main import main
         "Legacy aliases are accepted. Default: token. Env: HEADROOM_MODE"
     ),
 )
+@click.option(
+    "--intercept-tool-results",
+    is_flag=True,
+    help=(
+        "Opt in to tool_result interceptors (ast-grep Read outliner, etc.). "
+        "Off by default while this feature ships."
+    ),
+)
 @click.option("--no-optimize", is_flag=True, help="Disable optimization (passthrough mode)")
 @click.option("--no-cache", is_flag=True, help="Disable semantic caching")
 @click.option("--no-rate-limit", is_flag=True, help="Disable rate limiting")
@@ -211,6 +219,7 @@ def proxy(
     mode: str | None,
     host: str,
     port: int,
+    intercept_tool_results: bool,
     no_optimize: bool,
     no_cache: bool,
     no_rate_limit: bool,
@@ -266,6 +275,18 @@ def proxy(
         click.echo("Error: Proxy dependencies not installed. Run: pip install headroom[proxy]")
         click.echo(f"Details: {e}")
         raise SystemExit(1) from None
+
+    # Ensure bundled CLI tools (ast-grep, difftastic, scc) are present before
+    # the proxy starts accepting traffic. Never happens inside a live request —
+    # tools are downloaded once at startup if missing, then cached per-user.
+    from headroom.binaries import ensure_tools
+
+    ensure_tools()
+
+    # Opt-in: turn on tool_result interceptors (ast-grep Read outline, etc.).
+    # The TransformPipeline reads this env var at construction time.
+    if intercept_tool_results:
+        os.environ["HEADROOM_INTERCEPT_ENABLED"] = "1"
 
     # Resolve API URL overrides: CLI flag > env var > None
     effective_anthropic_api_url = anthropic_api_url or os.environ.get("ANTHROPIC_TARGET_API_URL")

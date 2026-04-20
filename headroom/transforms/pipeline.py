@@ -75,6 +75,18 @@ class TransformPipeline:
 
         # Order matters!
 
+        # 0. Tool-result interceptors (ast-grep Read outline, etc.) run first
+        # so downstream compressors operate on the already-shrunk content.
+        # OPT-IN: enable with HEADROOM_INTERCEPT_ENABLED=1 or `headroom proxy
+        # --intercept-tool-results`. Off by default while this ships — lets
+        # users try it and compare before we make it the default.
+        import os as _os
+
+        if _os.environ.get("HEADROOM_INTERCEPT_ENABLED"):
+            from headroom.proxy.interceptors import ToolResultInterceptorTransform
+
+            transforms.append(ToolResultInterceptorTransform())
+
         # 1. Cache Aligner (prefix stabilization)
         if self.config.cache_aligner.enabled:
             transforms.append(CacheAligner(self.config.cache_aligner))

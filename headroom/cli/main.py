@@ -42,6 +42,7 @@ def _register_commands() -> None:
         mcp,  # noqa: F401
         perf,  # noqa: F401
         proxy,  # noqa: F401
+        tools,  # noqa: F401
         wrap,  # noqa: F401
     )
 

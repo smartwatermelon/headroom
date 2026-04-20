@@ -213,3 +213,6 @@ headroom-managed/
 
 # Release metadata artifact
 .releaseetadata
+
+# uv lockfile: regenerated locally; not committed
+uv.lock
