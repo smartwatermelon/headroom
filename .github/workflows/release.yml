@@ -284,6 +284,7 @@ jobs:
           npm install
           npm run build
           npm version ${{ needs.detect-version.outputs.npm_version }} --no-git-tag-version --allow-same-version
+          unscoped_sdk_tarball="$(npm pack --pack-destination "$assets_dir" | tail -n 1)"
           node <<'EOF'
           const fs = require("fs");
           const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
@@ -295,9 +296,9 @@ jobs:
           fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
           EOF
           sdk_tarball="$(npm pack --pack-destination "$assets_dir" | tail -n 1)"
-          npm publish --access public --registry ${{ env.GITHUB_PACKAGES_REGISTRY_URL }}
-
+          printf 'unscoped_sdk_tarball=%s\n' "$assets_dir/$unscoped_sdk_tarball" >> "$GITHUB_OUTPUT"
           printf 'sdk_tarball=%s\n' "$assets_dir/$sdk_tarball" >> "$GITHUB_OUTPUT"
+          npm publish --access public --registry ${{ env.GITHUB_PACKAGES_REGISTRY_URL }}
         continue-on-error: true
 
       - name: Publish ${{ env.NPM_OPENCLAW_PACKAGE }} to GitHub Package Registry
@@ -305,7 +306,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_PACKAGES_SCOPE: ${{ steps.gh-scope.outputs.scope }}
-          SDK_TARBALL: ${{ steps.gpr-sdk-publish.outputs.sdk_tarball }}
+          SDK_TARBALL: ${{ steps.gpr-sdk-publish.outputs.unscoped_sdk_tarball }}
         run: |
           workdir="$(mktemp -d)"
           cp -R plugins/openclaw "$workdir/openclaw"

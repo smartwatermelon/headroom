@@ -21,6 +21,10 @@ def test_release_workflow_publishes_both_node_packages_to_github_packages() -> N
     assert "Publish ${{ env.NPM_SDK_PACKAGE }} to GitHub Package Registry" in content
     assert "Publish ${{ env.NPM_OPENCLAW_PACKAGE }} to GitHub Package Registry" in content
     assert "pkg.name = `@${process.env.GITHUB_PACKAGES_SCOPE}/${pkg.name}`;" in content
+    assert (
+        'unscoped_sdk_tarball="$(npm pack --pack-destination "$assets_dir" | tail -n 1)"' in content
+    )
+    assert "SDK_TARBALL: ${{ steps.gpr-sdk-publish.outputs.unscoped_sdk_tarball }}" in content
 
 
 def test_create_release_runs_after_successful_build_even_if_other_publishes_fail() -> None:
