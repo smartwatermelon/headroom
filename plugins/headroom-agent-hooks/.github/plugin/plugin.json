@@ -1,0 +1,18 @@
+{
+  "name": "headroom",
+  "version": "0.1.0",
+  "description": "Headroom startup hooks for Claude Code and GitHub Copilot CLI.",
+  "author": {
+    "name": "Headroom Contributors",
+    "url": "https://github.com/JerrettDavis/headroom"
+  },
+  "homepage": "https://github.com/JerrettDavis/headroom",
+  "repository": "https://github.com/JerrettDavis/headroom",
+  "keywords": [
+    "headroom",
+    "hooks",
+    "claude-code",
+    "copilot-cli"
+  ],
+  "hooks": "./hooks"
+}
