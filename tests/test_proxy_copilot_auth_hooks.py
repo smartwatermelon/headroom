@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_handler_module(module_name: str, relative_path: str, monkeypatch: pytest.MonkeyPatch):
+def _load_handler_module(monkeypatch: pytest.MonkeyPatch, module_name: str, relative_path: str):
     proxy_pkg = types.ModuleType("headroom.proxy")
     proxy_pkg.__path__ = [str(ROOT / "headroom" / "proxy")]
     monkeypatch.setitem(sys.modules, "headroom.proxy", proxy_pkg)
@@ -57,9 +57,9 @@ def _load_handler_module(module_name: str, relative_path: str, monkeypatch: pyte
 @pytest.mark.asyncio
 async def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     openai_mod = _load_handler_module(
+        monkeypatch,
         "tests.headroom_proxy_handlers_openai",
         "headroom/proxy/handlers/openai.py",
-        monkeypatch,
     )
 
     seen: dict[str, object] = {}
@@ -115,9 +115,9 @@ async def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.Monke
 @pytest.mark.asyncio
 async def test_streaming_response_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     streaming_mod = _load_handler_module(
+        monkeypatch,
         "tests.headroom_proxy_handlers_streaming",
         "headroom/proxy/handlers/streaming.py",
-        monkeypatch,
     )
 
     seen: dict[str, object] = {}

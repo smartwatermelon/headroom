@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
+
+if "fastapi" not in sys.modules:
+    fastapi_mod = types.ModuleType("fastapi")
+    fastapi_mod.FastAPI = type("FastAPI", (), {})
+    fastapi_mod.Request = type("Request", (), {})
+    fastapi_mod.WebSocket = type("WebSocket", (), {})
+    sys.modules["fastapi"] = fastapi_mod
+
+if "fastapi.responses" not in sys.modules:
+    responses_mod = types.ModuleType("fastapi.responses")
+    responses_mod.Response = type("Response", (), {})
+    sys.modules["fastapi.responses"] = responses_mod
 
 from headroom.cli import wrap as wrap_cli
 from headroom.cli.main import main
