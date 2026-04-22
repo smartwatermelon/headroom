@@ -3,7 +3,12 @@
 from pathlib import Path
 
 from headroom.learn.models import ProjectInfo, Recommendation, RecommendationTarget
-from headroom.learn.writer import _MARKER_END, _MARKER_START, ClaudeCodeWriter
+from headroom.learn.writer import (
+    _MARKER_END,
+    _MARKER_START,
+    ClaudeCodeWriter,
+    _parse_prior_recommendations,
+)
 
 
 def _project(tmp_path: Path) -> ProjectInfo:
@@ -201,3 +206,36 @@ class TestClaudeCodeWriter:
         assert "Existing Memory" in content
         assert "Some facts" in content
         assert "New pattern" in content
+
+
+class TestParsePriorRecommendations:
+    """Direct coverage for _parse_prior_recommendations edge cases."""
+
+    def test_no_marker_block_returns_empty(self):
+        """A file without any marker block yields no prior recommendations."""
+        assert _parse_prior_recommendations("# Project\n\nJust a regular README.\n") == []
+
+    def test_empty_marker_block_yields_no_recs(self):
+        """A marker block with nothing between the markers yields no recs."""
+        content = f"prefix\n{_MARKER_START}\n{_MARKER_END}\nsuffix\n"
+        assert _parse_prior_recommendations(content) == []
+
+    def test_marker_block_with_empty_heading_is_skipped(self):
+        """A stray `### ` (empty heading) inside the block is skipped, not raised."""
+        # Leading `### ` with no heading text, followed by a real section.
+        content = (
+            f"{_MARKER_START}\n"
+            "## Headroom Learned Patterns\n"
+            "### \n"
+            "some orphan content\n"
+            "\n"
+            "### Real Section\n"
+            "- real bullet\n"
+            "\n"
+            f"{_MARKER_END}\n"
+        )
+        recs = _parse_prior_recommendations(content)
+        # Only the real section is parsed; the empty-heading entry is dropped.
+        assert len(recs) == 1
+        assert recs[0].section == "Real Section"
+        assert "real bullet" in recs[0].content
