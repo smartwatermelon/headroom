@@ -11,20 +11,20 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_handler_module(module_name: str, relative_path: str):
+def _load_handler_module(module_name: str, relative_path: str, monkeypatch: pytest.MonkeyPatch):
     proxy_pkg = types.ModuleType("headroom.proxy")
     proxy_pkg.__path__ = [str(ROOT / "headroom" / "proxy")]
-    sys.modules["headroom.proxy"] = proxy_pkg
+    monkeypatch.setitem(sys.modules, "headroom.proxy", proxy_pkg)
 
     handlers_pkg = types.ModuleType("headroom.proxy.handlers")
     handlers_pkg.__path__ = [str(ROOT / "headroom" / "proxy" / "handlers")]
-    sys.modules["headroom.proxy.handlers"] = handlers_pkg
+    monkeypatch.setitem(sys.modules, "headroom.proxy.handlers", handlers_pkg)
 
     httpx_mod = types.ModuleType("httpx")
     httpx_mod.ConnectError = type("ConnectError", (Exception,), {})
     httpx_mod.ConnectTimeout = type("ConnectTimeout", (Exception,), {})
     httpx_mod.PoolTimeout = type("PoolTimeout", (Exception,), {})
-    sys.modules["httpx"] = httpx_mod
+    monkeypatch.setitem(sys.modules, "httpx", httpx_mod)
 
     responses_mod = types.ModuleType("fastapi.responses")
 
@@ -38,14 +38,18 @@ def _load_handler_module(module_name: str, relative_path: str):
     class StreamingResponse(Response):
         pass
 
+    class JSONResponse(Response):
+        pass
+
     responses_mod.Response = Response
     responses_mod.StreamingResponse = StreamingResponse
-    sys.modules["fastapi.responses"] = responses_mod
+    responses_mod.JSONResponse = JSONResponse
+    monkeypatch.setitem(sys.modules, "fastapi.responses", responses_mod)
 
     spec = importlib.util.spec_from_file_location(module_name, ROOT / relative_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
+    monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -55,6 +59,7 @@ async def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.Monke
     openai_mod = _load_handler_module(
         "tests.headroom_proxy_handlers_openai",
         "headroom/proxy/handlers/openai.py",
+        monkeypatch,
     )
 
     seen: dict[str, object] = {}
@@ -112,6 +117,7 @@ async def test_streaming_response_applies_copilot_auth(monkeypatch: pytest.Monke
     streaming_mod = _load_handler_module(
         "tests.headroom_proxy_handlers_streaming",
         "headroom/proxy/handlers/streaming.py",
+        monkeypatch,
     )
 
     seen: dict[str, object] = {}
