@@ -394,7 +394,7 @@ def _marketplace_source() -> str:
     repo_root = Path(__file__).resolve().parents[2]
     if (repo_root / ".claude-plugin" / "marketplace.json").exists():
         return str(repo_root)
-    return "JerrettDavis/headroom"
+    return "chopratejas/headroom"
 
 
 def _run_checked(command: list[str], *, action: str) -> None:

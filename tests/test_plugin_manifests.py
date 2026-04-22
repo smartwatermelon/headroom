@@ -38,3 +38,18 @@ def test_marketplace_entry_points_to_plugin_root() -> None:
     assert plugin_root.is_dir()
     assert (plugin_root / ".claude-plugin" / "plugin.json").is_file()
     assert (plugin_root / "hooks" / "hooks.json").is_file()
+
+
+def test_plugin_metadata_points_to_upstream_repo() -> None:
+    expected_repo = "https://github.com/chopratejas/headroom"
+    marketplace = _load_json(".claude-plugin/marketplace.json")
+    claude = _load_json("plugins/headroom-agent-hooks/.claude-plugin/plugin.json")
+    assert isinstance(marketplace, dict)
+    assert isinstance(claude, dict)
+    plugin = marketplace["plugins"][0]
+    assert plugin["author"]["url"] == expected_repo
+    assert plugin["homepage"] == expected_repo
+    assert plugin["repository"] == expected_repo
+    assert claude["author"]["url"] == expected_repo
+    assert claude["homepage"] == expected_repo
+    assert claude["repository"] == expected_repo
