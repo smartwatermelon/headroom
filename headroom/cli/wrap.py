@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # Fix Windows cp1252 encoding — box-drawing characters require UTF-8
 if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
@@ -34,6 +34,8 @@ if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
 
 import click
 
+from headroom.copilot_auth import DEFAULT_API_URL as COPILOT_API_URL
+from headroom.copilot_auth import has_oauth_auth, resolve_client_bearer_token
 from headroom.providers.aider import build_launch_env as _build_aider_launch_env
 from headroom.providers.claude import proxy_base_url as _claude_proxy_base_url
 from headroom.providers.codex import build_launch_env as _build_codex_launch_env
@@ -73,6 +75,11 @@ from headroom.providers.openclaw import (
 )
 
 from .main import main
+
+
+def _live_wrap_module() -> Any:
+    """Return the current live wrap module instance."""
+    return cast(Any, sys.modules[__name__])
 
 
 def _print_telemetry_notice() -> None:
@@ -121,6 +128,7 @@ def _start_proxy(
     backend: str | None = None,
     anyllm_provider: str | None = None,
     region: str | None = None,
+    openai_api_url: str | None = None,
 ) -> subprocess.Popen:
     """Start Headroom proxy as a background subprocess.
 
@@ -159,6 +167,9 @@ def _start_proxy(
     _region = region or os.environ.get("HEADROOM_REGION")
     if _region:
         cmd.extend(["--region", _region])
+
+    if openai_api_url:
+        cmd.extend(["--openai-api-url", openai_api_url])
 
     log_path = _get_log_path()
     log_file = open(log_path, "a")  # noqa: SIM115
@@ -703,6 +714,25 @@ def _copilot_model_configured(copilot_args: tuple[str, ...], env: dict[str, str]
     return _copilot_model_configured_impl(copilot_args, env)
 
 
+def _should_use_copilot_oauth(
+    *,
+    backend: str | None,
+    provider_type: str,
+    env: dict[str, str],
+) -> bool:
+    """Prefer a reusable Copilot OAuth session when the requested routing supports it."""
+    if env.get("COPILOT_PROVIDER_API_KEY") or env.get("COPILOT_PROVIDER_BEARER_TOKEN"):
+        return False
+    if provider_type == "anthropic":
+        return False
+
+    effective_backend = backend or os.environ.get("HEADROOM_BACKEND")
+    if effective_backend not in (None, "", "anthropic"):
+        return False
+
+    return has_oauth_auth()
+
+
 def _ensure_proxy(
     port: int,
     no_proxy: bool,
@@ -714,6 +744,7 @@ def _ensure_proxy(
     backend: str | None = None,
     anyllm_provider: str | None = None,
     region: str | None = None,
+    openai_api_url: str | None = None,
 ) -> subprocess.Popen | None:
     """Start or verify proxy. Returns process handle if we started it."""
     if not no_proxy:
@@ -780,15 +811,19 @@ def _ensure_proxy(
         # Start (or restart) the proxy with the requested flags
         click.echo(f"  Starting Headroom proxy on port {port}...")
         try:
-            proc = _start_proxy(
-                port,
-                learn=learn,
-                memory=memory,
-                agent_type=agent_type,
-                code_graph=code_graph,
-                backend=backend,
-                anyllm_provider=anyllm_provider,
-                region=region,
+            proc = cast(
+                subprocess.Popen[Any],
+                _live_wrap_module()._start_proxy(
+                    port,
+                    learn=learn,
+                    memory=memory,
+                    agent_type=agent_type,
+                    code_graph=code_graph,
+                    backend=backend,
+                    anyllm_provider=anyllm_provider,
+                    region=region,
+                    openai_api_url=openai_api_url,
+                ),
             )
             click.echo(f"  Proxy ready on http://127.0.0.1:{port}")
             return proc
@@ -856,6 +891,7 @@ def _launch_tool(
     backend: str | None = None,
     anyllm_provider: str | None = None,
     region: str | None = None,
+    openai_api_url: str | None = None,
 ) -> None:
     """Common logic: start proxy, launch tool, clean up."""
     proxy_holder: list[subprocess.Popen | None] = [None]
@@ -881,6 +917,7 @@ def _launch_tool(
             backend=backend,
             anyllm_provider=anyllm_provider,
             region=region,
+            openai_api_url=openai_api_url,
         )
 
         if code_graph:
@@ -1369,25 +1406,52 @@ def copilot(
             copilot_instructions = Path.cwd() / ".github" / "copilot-instructions.md"
             _inject_rtk_instructions(copilot_instructions, verbose=verbose)
 
-    env, env_vars_display = _build_copilot_launch_env(
-        port=port,
-        provider_type=effective_provider_type,
-        wire_api=wire_api,
-        environ=os.environ,
-    )
+    env = os.environ.copy()
+    openai_api_url: str | None = None
+    if _should_use_copilot_oauth(
+        backend=effective_backend,
+        provider_type=provider_type,
+        env=env,
+    ):
+        client_bearer = resolve_client_bearer_token()
+        if not client_bearer:
+            raise click.ClickException(
+                "GitHub Copilot auth was detected but no reusable bearer token could be resolved."
+            )
 
-    if not env.get("COPILOT_PROVIDER_API_KEY"):
-        src = _copilot_provider_key_source(effective_provider_type)
-        click.echo(
-            f"\n  Error: Copilot BYOK mode requires a provider API key.\n"
-            f"  `headroom wrap copilot` uses Copilot's BYOK mode, which bypasses GitHub's\n"
-            f"  Copilot API and routes requests directly to the model provider through the\n"
-            f"  Headroom proxy. A GitHub Copilot subscription alone is not sufficient.\n\n"
-            f"  Set one of:\n"
-            f"    export {src}=sk-...          # recommended\n"
-            f"    export COPILOT_PROVIDER_API_KEY=sk-...  # also works\n"
+        effective_wire_api = wire_api or "completions"
+        env["COPILOT_PROVIDER_TYPE"] = "openai"
+        env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+        env["COPILOT_PROVIDER_WIRE_API"] = effective_wire_api
+        env["COPILOT_PROVIDER_BEARER_TOKEN"] = client_bearer
+        env.pop("COPILOT_PROVIDER_API_KEY", None)
+        env_vars_display = [
+            "COPILOT_PROVIDER_TYPE=openai",
+            f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}/v1",
+            f"COPILOT_PROVIDER_WIRE_API={effective_wire_api}",
+            "COPILOT_AUTH_MODE=github-oauth",
+        ]
+        openai_api_url = COPILOT_API_URL
+    else:
+        env, env_vars_display = _build_copilot_launch_env(
+            port=port,
+            provider_type=effective_provider_type,
+            wire_api=wire_api,
+            environ=env,
         )
-        raise SystemExit(1)
+
+        if not env.get("COPILOT_PROVIDER_API_KEY"):
+            src = _copilot_provider_key_source(effective_provider_type)
+            click.echo(
+                f"\n  Error: Copilot BYOK mode requires a provider API key.\n"
+                f"  `headroom wrap copilot` uses Copilot's BYOK mode, which bypasses GitHub's\n"
+                f"  Copilot API and routes requests directly to the model provider through the\n"
+                f"  Headroom proxy. A GitHub Copilot subscription alone is not sufficient.\n\n"
+                f"  Set one of:\n"
+                f"    export {src}=sk-...          # recommended\n"
+                f"    export COPILOT_PROVIDER_API_KEY=sk-...  # also works\n"
+            )
+            raise SystemExit(1)
 
     if not _copilot_model_configured(copilot_args, env):
         click.echo(
@@ -1409,6 +1473,7 @@ def copilot(
         backend=backend,
         anyllm_provider=anyllm_provider,
         region=region,
+        openai_api_url=openai_api_url,
     )
 
 
