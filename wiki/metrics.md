@@ -100,7 +100,7 @@ curl http://localhost:8787/stats-history
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "generated_at": "2026-03-27T09:10:00Z",
   "lifetime": {
     "tokens_saved": 12500,
@@ -123,6 +123,12 @@ curl http://localhost:8787/stats-history
     "default_format": "json",
     "available_formats": ["json", "csv"],
     "available_series": ["history", "hourly", "daily", "weekly", "monthly"]
+  },
+  "history_summary": {
+    "mode": "compact",
+    "stored_points": 2048,
+    "returned_points": 500,
+    "compacted": true
   }
 }
 ```
@@ -132,11 +138,17 @@ compression history. It survives proxy restarts, tolerates missing or malformed
 state files, and powers the historical view in `/dashboard`. It now includes
 hourly, daily, weekly, and monthly chart-ready rollups.
 
+By default, the `history` array is compacted for transport efficiency. Use
+`history_mode=full` when you explicitly need the full retained checkpoint list,
+or `history_mode=none` when you only need the aggregate rollups and lifetime
+totals.
+
 For export-friendly downloads:
 
 ```bash
 curl "http://localhost:8787/stats-history?format=csv&series=daily"
 curl "http://localhost:8787/stats-history?format=csv&series=monthly"
+curl "http://localhost:8787/stats-history?history_mode=full"
 ```
 
 CSV exports are available for `history`, `hourly`, `daily`, `weekly`, and

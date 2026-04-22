@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   savings, logs, and telemetry resolve to the bind-mounted `.headroom` path.
   See [`wiki/filesystem-contract.md`](wiki/filesystem-contract.md).
 
+### Changed
+- **`/stats-history` now returns compact checkpoint history by default** — the
+  JSON response keeps recent checkpoints dense while evenly sampling older
+  checkpoints so long-running installs do not return ever-growing payloads.
+  Add `history_mode=full` to fetch the full retained checkpoint list, or
+  `history_mode=none` to skip it entirely while still receiving the derived
+  hourly/daily/weekly/monthly rollups. Responses now include a
+  `history_summary` block describing stored versus returned points.
+
 ## [0.5.22] - 2026-04-11
 
 ### Added

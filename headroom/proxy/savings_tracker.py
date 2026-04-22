@@ -29,6 +29,7 @@ DEFAULT_SAVINGS_FILE = "proxy_savings.json"
 SCHEMA_VERSION = 2
 DEFAULT_MAX_HISTORY_POINTS = 5000
 DEFAULT_MAX_HISTORY_AGE_DAYS = 365
+DEFAULT_MAX_RESPONSE_HISTORY_POINTS = 500
 DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES = 60
 
 LITELLM_AVAILABLE = importlib.util.find_spec("litellm") is not None
@@ -311,11 +312,19 @@ class SavingsTracker:
         path: str | None = None,
         max_history_points: int = DEFAULT_MAX_HISTORY_POINTS,
         max_history_age_days: int = DEFAULT_MAX_HISTORY_AGE_DAYS,
+        max_response_history_points: int = DEFAULT_MAX_RESPONSE_HISTORY_POINTS,
         display_session_inactivity_minutes: int = (DEFAULT_DISPLAY_SESSION_INACTIVITY_MINUTES),
     ) -> None:
         self._path = Path(path or get_default_savings_storage_path())
         self._max_history_points = max_history_points
         self._max_history_age_days = max_history_age_days
+        self._max_response_history_points = max(
+            _coerce_int(
+                max_response_history_points,
+                DEFAULT_MAX_RESPONSE_HISTORY_POINTS,
+            ),
+            1,
+        )
         self._display_session_inactivity_minutes = max(
             _coerce_int(
                 display_session_inactivity_minutes,
@@ -524,16 +533,17 @@ class SavingsTracker:
             "retention": snapshot["retention"],
         }
 
-    def history_response(self) -> dict[str, Any]:
+    def history_response(self, history_mode: str = "compact") -> dict[str, Any]:
         """Return frontend-friendly historical data for `/stats-history`."""
         snapshot = self.snapshot()
-        history = snapshot["history"]
+        raw_history = snapshot["history"]
         series = {
-            "hourly": self._build_rollup(history, bucket="hour"),
-            "daily": self._build_rollup(history, bucket="day"),
-            "weekly": self._build_rollup(history, bucket="week"),
-            "monthly": self._build_rollup(history, bucket="month"),
+            "hourly": self._build_rollup(raw_history, bucket="hour"),
+            "daily": self._build_rollup(raw_history, bucket="day"),
+            "weekly": self._build_rollup(raw_history, bucket="week"),
+            "monthly": self._build_rollup(raw_history, bucket="month"),
         }
+        history = self._history_for_response(raw_history, mode=history_mode)
         return {
             "schema_version": snapshot["schema_version"],
             "generated_at": _to_utc_iso(_utc_now()),
@@ -549,6 +559,12 @@ class SavingsTracker:
                 "available_series": ["history", *series.keys()],
             },
             "retention": snapshot["retention"],
+            "history_summary": {
+                "mode": history_mode,
+                "stored_points": len(raw_history),
+                "returned_points": len(history),
+                "compacted": len(history) < len(raw_history),
+            },
         }
 
     def export_rows(self, series: str = "history") -> list[dict[str, Any]]:
@@ -604,6 +620,7 @@ class SavingsTracker:
                 "retention": {
                     "max_history_points": self._max_history_points,
                     "max_history_age_days": self._max_history_age_days,
+                    "max_response_history_points": self._max_response_history_points,
                 },
             }
 
@@ -726,6 +743,53 @@ class SavingsTracker:
             history = history[-self._max_history_points :]
 
         self._state["history"] = history
+
+    def _history_for_response(
+        self,
+        history: list[dict[str, Any]],
+        *,
+        mode: str,
+    ) -> list[dict[str, Any]]:
+        if mode == "none":
+            return []
+        if mode == "full":
+            return [dict(item) for item in history]
+        return self._compact_history(history)
+
+    def _compact_history(self, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if len(history) <= self._max_response_history_points:
+            return [dict(item) for item in history]
+
+        # Keep the recent tail dense for charts while evenly sampling older
+        # checkpoints so long-running installs don't return unbounded payloads.
+        recent_points = min(
+            max(self._max_response_history_points // 3, 50),
+            self._max_response_history_points - 1,
+        )
+        recent = history[-recent_points:]
+        older = history[:-recent_points]
+        older_slots = self._max_response_history_points - len(recent)
+        if older_slots <= 0 or not older:
+            return [dict(item) for item in recent[-self._max_response_history_points :]]
+
+        if older_slots == 1:
+            sampled_older = [older[0]]
+        else:
+            sampled_older = [
+                older[((len(older) - 1) * index) // (older_slots - 1)]
+                for index in range(older_slots)
+            ]
+
+        compacted: list[dict[str, Any]] = []
+        seen_timestamps: set[str] = set()
+        for point in [*sampled_older, *recent]:
+            timestamp = point.get("timestamp")
+            if not isinstance(timestamp, str) or timestamp in seen_timestamps:
+                continue
+            seen_timestamps.add(timestamp)
+            compacted.append(dict(point))
+
+        return compacted
 
     def _save_locked(self) -> None:
         try:

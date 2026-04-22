@@ -241,8 +241,10 @@ curl http://localhost:8787/stats-history
 other Headroom frontends. It returns:
 
 - lifetime proxy compression totals
-- bounded persisted checkpoint history
+- compact checkpoint history by default, with `history_mode=full` available for
+  export/debug flows
 - derived hourly, daily, weekly, and monthly rollups for charts
+- a `history_summary` block describing stored versus returned checkpoint counts
 - UTC timestamps throughout
 
 By default the proxy stores this history at
@@ -258,6 +260,7 @@ daily/weekly/monthly rollups and built-in JSON / CSV export buttons.
 ```bash
 curl "http://localhost:8787/stats-history?format=csv&series=weekly"
 curl "http://localhost:8787/stats-history?format=csv&series=monthly"
+curl "http://localhost:8787/stats-history?history_mode=full"
 ```
 
 ### Prometheus Metrics

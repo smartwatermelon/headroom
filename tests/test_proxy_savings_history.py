@@ -130,6 +130,7 @@ def test_savings_tracker_sanitizes_legacy_state_and_applies_retention(tmp_path):
     assert snapshot["retention"] == {
         "max_history_points": 1,
         "max_history_age_days": 2,
+        "max_response_history_points": 500,
     }
 
 
@@ -484,6 +485,60 @@ def test_savings_tracker_rollups_preserve_spend_and_input_history(tmp_path, monk
     ]
 
 
+def test_stats_history_defaults_to_compact_history_but_can_return_full_history(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "proxy_savings.json"
+    tracker = SavingsTracker(
+        path=str(path),
+        max_history_points=100,
+        max_history_age_days=30,
+        max_response_history_points=5,
+    )
+    monkeypatch.setattr(
+        "headroom.proxy.savings_tracker._estimate_compression_savings_usd",
+        lambda model, tokens_saved: tokens_saved / 1000.0,
+    )
+
+    for i in range(8):
+        tracker.record_compression_savings(
+            model="gpt-4o",
+            tokens_saved=10,
+            total_input_tokens=(i + 1) * 100,
+            total_input_cost_usd=(i + 1) * 0.1,
+            timestamp=f"2026-03-27T09:{i:02d}:00Z",
+        )
+
+    compact = tracker.history_response()
+    assert compact["history_summary"] == {
+        "mode": "compact",
+        "stored_points": 8,
+        "returned_points": 5,
+        "compacted": True,
+    }
+    assert len(compact["history"]) == 5
+    assert compact["history"][0]["timestamp"] == "2026-03-27T09:00:00Z"
+    assert compact["history"][-1]["timestamp"] == "2026-03-27T09:07:00Z"
+
+    full = tracker.history_response(history_mode="full")
+    assert full["history_summary"] == {
+        "mode": "full",
+        "stored_points": 8,
+        "returned_points": 8,
+        "compacted": False,
+    }
+    assert len(full["history"]) == 8
+
+    none = tracker.history_response(history_mode="none")
+    assert none["history"] == []
+    assert none["history_summary"] == {
+        "mode": "none",
+        "stored_points": 8,
+        "returned_points": 0,
+        "compacted": True,
+    }
+
+
 def test_stats_history_persists_across_restarts_and_stats_stays_compatible(tmp_path, monkeypatch):
     savings_path = tmp_path / "proxy_savings.json"
     monkeypatch.setenv("HEADROOM_SAVINGS_PATH", str(savings_path))
@@ -533,6 +588,12 @@ def test_stats_history_persists_across_restarts_and_stats_stays_compatible(tmp_p
         assert history_data["series"]["hourly"][0]["total_input_cost_usd_delta"] == pytest.approx(
             0.24
         )
+        assert history_data["history_summary"] == {
+            "mode": "compact",
+            "stored_points": 1,
+            "returned_points": 1,
+            "compacted": False,
+        }
 
         assert stats_data["display_session"] == history_data["display_session"]
         assert (
@@ -559,6 +620,11 @@ def test_stats_history_persists_across_restarts_and_stats_stays_compatible(tmp_p
         assert updated["display_session"]["savings_percent"] == pytest.approx(18.64)
         assert updated["series"]["daily"][0]["total_input_tokens_delta"] == 240
         assert updated["series"]["daily"][0]["total_input_cost_usd_delta"] == pytest.approx(0.48)
+
+        full = client.get("/stats-history?history_mode=full").json()
+        assert full["history_summary"]["mode"] == "full"
+        assert full["history_summary"]["stored_points"] == 2
+        assert full["history_summary"]["returned_points"] == 2
 
         persisted = json.loads(savings_path.read_text())
         assert persisted["lifetime"]["tokens_saved"] == 55

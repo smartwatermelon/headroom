@@ -1658,6 +1658,9 @@
                 async downloadHistory(format = 'json', series = null) {
                     const selectedSeries = series || this.historySelectedSeriesKey;
                     const params = new URLSearchParams({ format, series: selectedSeries });
+                    if (format === 'json' && selectedSeries === 'history') {
+                        params.set('history_mode', 'full');
+                    }
                     const response = await fetch('/stats-history?' + params.toString());
                     if (!response.ok) throw new Error('Failed to export history');
 

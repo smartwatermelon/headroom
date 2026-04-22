@@ -1699,6 +1699,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     async def stats_history(
         format: Literal["json", "csv"] = "json",
         series: Literal["history", "hourly", "daily", "weekly", "monthly"] = "history",
+        history_mode: Literal["compact", "full", "none"] = "compact",
     ):
         """Get durable proxy compression history plus display-session state."""
         if format == "csv":
@@ -1709,7 +1710,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
 
-        return proxy.metrics.savings_tracker.history_response()
+        return proxy.metrics.savings_tracker.history_response(history_mode=history_mode)
 
     @app.get("/transformations/feed")
     async def transformations_feed(limit: int = 20):

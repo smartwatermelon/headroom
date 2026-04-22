@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "headroom-ai"
-version = "0.5.25"
+version = "0.9.1"
 description = "The Context Optimization Layer for LLM Applications - Cut costs by 50-90%"
 readme = "README.md"
 license = "Apache-2.0"
@@ -52,6 +52,7 @@ dependencies = [
     "rich>=13.0.0",               # Rich terminal output
     "opentelemetry-api>=1.24.0",  # Safe no-op OTEL API for instrumentation
     "ast-grep-cli>=0.30.0",       # AST-aware code slicing (CodeCompressor); binary wheel
+    "tomli>=2.0.0; python_version < '3.11'",  # tomllib backport for helper scripts
 ]
 
 [project.optional-dependencies]
