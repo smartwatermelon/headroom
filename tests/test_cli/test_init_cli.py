@@ -200,3 +200,23 @@ def test_detect_init_targets_respects_scope(monkeypatch) -> None:
 
     assert init_cli.detect_init_targets(False) == ["claude", "codex"]
     assert init_cli.detect_init_targets(True) == ["claude", "copilot", "codex", "openclaw"]
+
+
+def test_marketplace_source_prefers_env_override(monkeypatch) -> None:
+    init_cli, _ = _load_init_module(monkeypatch)
+    monkeypatch.setenv("HEADROOM_MARKETPLACE_SOURCE", "custom/source")
+
+    assert init_cli._marketplace_source() == "custom/source"
+
+
+def test_run_checked_treats_existing_install_as_success(monkeypatch) -> None:
+    init_cli, _ = _load_init_module(monkeypatch)
+
+    class _Result:
+        returncode = 1
+        stderr = "plugin already exists"
+        stdout = ""
+
+    monkeypatch.setattr(init_cli.subprocess, "run", lambda *args, **kwargs: _Result())
+
+    init_cli._run_checked(["claude", "plugin", "install"], action="claude plugin install")
