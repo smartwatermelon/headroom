@@ -50,6 +50,11 @@ class RequestLog:
     response_content: str | None = None
     error: str | None = None
 
+    # Groups every agent-loop API call from one user prompt into a single turn.
+    # See ``headroom.proxy.helpers.compute_turn_id`` for the derivation. None
+    # when no user-text message is present in the request.
+    turn_id: str | None = None
+
     # NOTE (Unit 2 follow-up): stage timings and session_id were briefly
     # added here but are now emitted exclusively through
     # ``emit_stage_timings_log`` (structured log line) and Prometheus.
@@ -218,7 +223,7 @@ class ProxyConfig:
 
     # Subscription Window Tracking (Anthropic OAuth accounts)
     subscription_tracking_enabled: bool = True
-    subscription_poll_interval_s: int = 10
+    subscription_poll_interval_s: int = 300
     subscription_active_window_s: int = 60
 
     # Stateless mode — disable all filesystem writes for read-only / container deployments

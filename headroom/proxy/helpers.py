@@ -8,6 +8,7 @@ Extracted from server.py for maintainability.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
@@ -278,3 +279,67 @@ async def _read_request_json(request: Request) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise ValueError("Request body must be a JSON object, not " + type(result).__name__)
     return result
+
+
+def compute_turn_id(
+    model: str,
+    system: Any,
+    messages: list[dict[str, Any]] | None,
+) -> str | None:
+    """Group all agent-loop API calls triggered by a single user prompt.
+
+    A turn spans the user's text prompt plus every assistant tool-use and
+    user tool-result message the agent appends while executing that prompt.
+    Hashing the prefix up to and including the last user *text* message yields
+    an id that is stable across the turn but rolls over when the user sends a
+    new prompt.
+
+    Returns None when no user-text message is present (nothing to identify).
+    """
+    if not messages:
+        return None
+
+    last_text_user_idx: int | None = None
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content:
+            last_text_user_idx = i
+            break
+        if isinstance(content, list):
+            has_text = any(
+                isinstance(block, dict) and block.get("type") == "text" for block in content
+            )
+            has_tool_result = any(
+                isinstance(block, dict) and block.get("type") == "tool_result" for block in content
+            )
+            # An agent-loop continuation carries tool_result blocks; only a
+            # fresh user turn is text-only.
+            if has_text and not has_tool_result:
+                last_text_user_idx = i
+                break
+
+    if last_text_user_idx is None:
+        return None
+
+    prefix = messages[: last_text_user_idx + 1]
+    try:
+        prefix_json = json.dumps(prefix, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return None
+
+    h = hashlib.sha256()
+    h.update(model.encode("utf-8", errors="replace"))
+    h.update(b"\0")
+    if isinstance(system, str):
+        h.update(system.encode("utf-8", errors="replace"))
+    elif system is not None:
+        try:
+            h.update(json.dumps(system, sort_keys=True, default=str).encode("utf-8"))
+        except (TypeError, ValueError):
+            pass
+    h.update(b"\0")
+    h.update(prefix_json.encode("utf-8", errors="replace"))
+    return h.hexdigest()[:16]
