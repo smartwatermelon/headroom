@@ -171,7 +171,9 @@ _MARKER_BLOCK = (
 )
 
 
-def _project_with_files(tmp_path: Path, claude_md_text: str | None, memory_md_text: str | None) -> ProjectInfo:
+def _project_with_files(
+    tmp_path: Path, claude_md_text: str | None, memory_md_text: str | None
+) -> ProjectInfo:
     """Build a ProjectInfo pointing at temp CLAUDE.md / MEMORY.md files."""
     proj_dir = tmp_path / "proj"
     proj_dir.mkdir()
@@ -203,14 +205,18 @@ class TestPriorPatternsInjection:
     now-dropped siblings (the "X is also large — same rule as Y, Z" bug)."""
 
     def test_digest_includes_prior_block_from_claude_md(self, tmp_path):
-        project = _project_with_files(tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None)
+        project = _project_with_files(
+            tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None
+        )
         digest = _build_digest(project, [])
         assert "Prior Learned Patterns" in digest
         assert "### Large Files" in digest
         assert "App.tsx" in digest
 
     def test_digest_includes_prior_block_from_memory_md(self, tmp_path):
-        project = _project_with_files(tmp_path, claude_md_text=None, memory_md_text=f"{_MARKER_BLOCK}\n")
+        project = _project_with_files(
+            tmp_path, claude_md_text=None, memory_md_text=f"{_MARKER_BLOCK}\n"
+        )
         digest = _build_digest(project, [])
         assert "Prior Learned Patterns" in digest
         assert "MEMORY.md" in digest
@@ -248,7 +254,9 @@ class TestPriorPatternsInjection:
         """End-to-end: SessionAnalyzer.analyze() → _call_llm receives digest
         containing the prior marker block content."""
         mock_call_llm.return_value = {"context_file_rules": [], "memory_file_rules": []}
-        project = _project_with_files(tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None)
+        project = _project_with_files(
+            tmp_path, claude_md_text=f"# Project\n\n{_MARKER_BLOCK}\n", memory_md_text=None
+        )
         sessions = [
             SessionData(
                 session_id="s1",
