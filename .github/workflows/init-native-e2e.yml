@@ -56,10 +56,21 @@ jobs:
           python-version: "3.11"
           shim-target: ${{ matrix.target }}
 
-      - name: Verify shim is on PATH
+      - name: Verify shim is on PATH (POSIX)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           which "${{ matrix.target }}"
+
+      - name: Verify shim is on PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # On Windows the shim is ``<target>.cmd``; Get-Command resolves via
+          # PATHEXT (same as Python's ``shutil.which`` used by headroom init).
+          # Git Bash's ``which`` cannot find ``.cmd`` shims, so we use pwsh.
+          $cmd = Get-Command "${{ matrix.target }}" -ErrorAction Stop
+          Write-Output $cmd.Source
 
       - name: Run headroom init -g ${{ matrix.target }}
         shell: bash
