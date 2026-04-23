@@ -107,9 +107,9 @@ def test_embedding_score_and_batch_with_fake_model(monkeypatch) -> None:
     monkeypatch.setattr(
         scorer,
         "_encode",
-        lambda texts: [[1.0, 0.0], [0.5, 0.5]]
-        if len(texts) == 2
-        else [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]],
+        lambda texts: (
+            [[1.0, 0.0], [0.5, 0.5]] if len(texts) == 2 else [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]
+        ),
     )
     monkeypatch.setattr(
         embedding, "_cosine_similarity", lambda a, b: 0.75 if a == [1.0, 0.0] else 0.25

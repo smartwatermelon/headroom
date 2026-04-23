@@ -199,9 +199,11 @@ def test_tools_install_covers_unknown_pypi_force_and_failures(
     monkeypatch.setattr(
         cli_tools.binaries,
         "resolve",
-        lambda name: (_ for _ in ()).throw(binaries.OfflineError("offline"))
-        if name == "broken"
-        else Path(f"C:\\cache\\{name}.exe"),
+        lambda name: (
+            (_ for _ in ()).throw(binaries.OfflineError("offline"))
+            if name == "broken"
+            else Path(f"C:\\cache\\{name}.exe")
+        ),
     )
 
     result = runner.invoke(

@@ -836,12 +836,14 @@ async def test_handle_google_batch_create_covers_passthrough_revert_and_store_fa
 
     pipeline_calls: list[dict[str, object]] = []
     handler.openai_pipeline = SimpleNamespace(
-        apply=lambda **kwargs: pipeline_calls.append(kwargs)
-        or SimpleNamespace(
-            messages=[{"role": "user", "content": "inflated"}],
-            timing={},
-            tokens_before=40,
-            tokens_after=80,
+        apply=lambda **kwargs: (
+            pipeline_calls.append(kwargs)
+            or SimpleNamespace(
+                messages=[{"role": "user", "content": "inflated"}],
+                timing={},
+                tokens_before=40,
+                tokens_after=80,
+            )
         )
     )
 

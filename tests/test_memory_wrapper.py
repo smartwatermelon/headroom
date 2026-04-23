@@ -159,8 +159,9 @@ def test_wrapped_completions_create_injects_parses_and_stores(
     )
     monkeypatch.setattr(
         "headroom.memory.wrapper.inject_memory_instruction",
-        lambda messages, short=True: messages
-        + [{"role": "system", "content": "memory-instruction"}],
+        lambda messages, short=True: (
+            messages + [{"role": "system", "content": "memory-instruction"}]
+        ),
     )
     monkeypatch.setattr(
         "headroom.memory.wrapper.parse_response_with_memory",

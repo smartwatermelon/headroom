@@ -895,8 +895,9 @@ async def test_memory_handler_misc_helpers(monkeypatch: pytest.MonkeyPatch, tmp_
         __import__("sys").modules,
         "headroom.memory.tools",
         SimpleNamespace(
-            get_memory_tools_optimized=lambda: calls.__setitem__("count", calls["count"] + 1)
-            or [{"name": "tool"}]
+            get_memory_tools_optimized=lambda: (
+                calls.__setitem__("count", calls["count"] + 1) or [{"name": "tool"}]
+            )
         ),
     )
     cache_handler = MemoryHandler(MemoryConfig(enabled=False), agent_type="codex")

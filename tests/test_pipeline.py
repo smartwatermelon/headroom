@@ -39,14 +39,16 @@ def test_discover_pipeline_extensions_handles_load_and_init_failures(
     monkeypatch.setattr(
         importlib.metadata,
         "entry_points",
-        lambda group=None: [
-            FakeEntryPoint("working-instance", WorkingExtension()),
-            FakeEntryPoint("working-class", WorkingExtension),
-            FakeEntryPoint("bad-load", RuntimeError("bad load")),
-            FakeEntryPoint("bad-init", NeedsInit),
-        ]
-        if group == ENTRY_POINT_GROUP
-        else [],
+        lambda group=None: (
+            [
+                FakeEntryPoint("working-instance", WorkingExtension()),
+                FakeEntryPoint("working-class", WorkingExtension),
+                FakeEntryPoint("bad-load", RuntimeError("bad load")),
+                FakeEntryPoint("bad-init", NeedsInit),
+            ]
+            if group == ENTRY_POINT_GROUP
+            else []
+        ),
     )
 
     discovered = discover_pipeline_extensions()

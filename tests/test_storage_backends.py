@@ -130,7 +130,7 @@ def test_create_storage_builtin_entrypoint_and_fallback(monkeypatch, tmp_path: P
 
     monkeypatch.setattr(
         "importlib.metadata.entry_points",
-        lambda group: [SimpleNamespace(name="other", load=lambda: (lambda url: created))],
+        lambda group: [SimpleNamespace(name="other", load=lambda: lambda url: created)],
     )
     missing_ep = create_storage("custom://missing.db")
     assert isinstance(missing_ep, FakeSQLiteStorage)
@@ -289,6 +289,6 @@ def test_sqlite_storage_get_conn_reuses_connection_and_create_storage_entrypoint
     created = DummyStorage()
     monkeypatch.setattr(
         "importlib.metadata.entry_points",
-        lambda group: [SimpleNamespace(name="custom", load=lambda: (lambda url: created))],
+        lambda group: [SimpleNamespace(name="custom", load=lambda: lambda url: created)],
     )
     assert create_storage("custom://db") is created
