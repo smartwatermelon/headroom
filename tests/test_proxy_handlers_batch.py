@@ -960,7 +960,9 @@ async def test_batch_helper_methods_and_openai_file_error_branches() -> None:
 
 
 @pytest.mark.asyncio
-async def test_store_google_batch_context_without_system_text() -> None:
+async def test_store_google_batch_context_without_system_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     stored_contexts: list[object] = []
 
     class FakeBatchContext:
@@ -980,10 +982,14 @@ async def test_store_google_batch_context_without_system_text() -> None:
             stored_contexts.append(context)
 
     handler = DummyBatchHandler()
-    sys.modules["headroom.ccr"] = SimpleNamespace(
-        BatchContext=FakeBatchContext,
-        BatchRequestContext=FakeBatchRequestContext,
-        get_batch_context_store=lambda: FakeStore(),
+    monkeypatch.setitem(
+        sys.modules,
+        "headroom.ccr",
+        SimpleNamespace(
+            BatchContext=FakeBatchContext,
+            BatchRequestContext=FakeBatchRequestContext,
+            get_batch_context_store=lambda: FakeStore(),
+        ),
     )
 
     await handler._store_google_batch_context(
