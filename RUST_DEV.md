@@ -42,15 +42,60 @@ exposes the same targets:
 
 ## Running the proxy
 
+`headroom-proxy` is a transparent reverse proxy. Phase 1 forwards HTTP/1.1,
+HTTP/2, SSE, and WebSocket traffic verbatim to a configured upstream — no
+provider logic yet. The intent is that operators run the existing Python
+proxy on a private port and put `headroom-proxy` on the public port pointed
+at it; end users notice nothing.
+
 ```bash
-cargo run -p headroom-proxy
-# or
+# Build
 make build-proxy
-./target/release/headroom-proxy
-# then
-curl -s http://127.0.0.1:8787/healthz
-# => {"ok":true}
+./target/release/headroom-proxy --help
+
+# Run against a local upstream
+./target/release/headroom-proxy \
+    --listen 0.0.0.0:8787 \
+    --upstream http://127.0.0.1:8788
+
+# Health checks
+curl -s http://127.0.0.1:8787/healthz            # => {"ok":true,...}
+curl -s http://127.0.0.1:8787/healthz/upstream   # => 200 if upstream reachable
 ```
+
+### Operator runbook (Phase 1 cutover)
+
+```bash
+# 1. Move the Python proxy to a private port (e.g. 8788)
+HEADROOM_BIND=127.0.0.1:8788 python -m headroom.proxy &     # or your existing launcher
+
+# 2. Run the Rust proxy on the previously-public port (8787) pointing at it
+./target/release/headroom-proxy --listen 0.0.0.0:8787 --upstream http://127.0.0.1:8788 &
+
+# 3. End users keep hitting :8787 unchanged.
+# 4. Confirm passthrough:
+curl -si http://127.0.0.1:8787/v1/models
+# 5. Rollback = stop the Rust proxy and rebind Python back to 8787.
+```
+
+### Configuration flags
+
+| Flag | Env var | Default | Notes |
+| --- | --- | --- | --- |
+| `--listen` | `HEADROOM_PROXY_LISTEN` | `0.0.0.0:8787` | bind address |
+| `--upstream` | `HEADROOM_PROXY_UPSTREAM` | (required) | base URL the proxy forwards to |
+| `--upstream-timeout` |  | `600s` | end-to-end request timeout (long for streams) |
+| `--upstream-connect-timeout` |  | `10s` | TCP/TLS connect timeout |
+| `--max-body-bytes` |  | `100MB` | for buffered cases; streams bypass |
+| `--log-level` |  | `info` | `RUST_LOG`-style filter |
+| `--rewrite-host` / `--no-rewrite-host` | | rewrite | rewrite Host to upstream (default) |
+| `--graceful-shutdown-timeout` | | `30s` | wait for in-flight on SIGTERM/SIGINT |
+
+### Reserved paths
+
+`/healthz` and `/healthz/upstream` are intercepted by the Rust proxy and
+**not** forwarded. Operators must not name a real upstream route either of
+these. Everything else is a catch-all forward.
 
 ## Maturin + Python wiring
 
