@@ -13,6 +13,12 @@ scripts/*
 !scripts/repro_codex_replay.py
 !scripts/fixtures/
 !scripts/fixtures/*.json
+!scripts/record_fixtures.py
+
+# Rust / Cargo build artifacts
+/target/
+**/target/
+Cargo.lock.bak
 
 # Swift SDK (separate repo)
 swift/
