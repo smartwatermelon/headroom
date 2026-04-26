@@ -36,6 +36,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # `headroom.transforms.diff_compressor` is now a thin pyo3 shim that
+      # delegates to `headroom._core` (built from `crates/headroom-py`). Without
+      # the wheel installed, every `DiffCompressor()` call raises
+      # `ModuleNotFoundError: No module named 'headroom._core'` and ~25 tests
+      # in `tests/test_transforms/test_diff_compressor.py` fail. The script
+      # below runs `maturin develop` and symlinks the built `.so` into the
+      # in-tree `headroom/` package so the editable install resolves it.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install maturin
+        run: |
+          pip install 'maturin>=1.5,<2.0'
+
+      - name: Build Rust extension (headroom._core)
+        run: |
+          bash scripts/build_rust_extension.sh
+
       - name: Run linting
         if: matrix.python-version == '3.12'
         run: |
