@@ -14,6 +14,7 @@ scripts/*
 !scripts/fixtures/
 !scripts/fixtures/*.json
 !scripts/record_fixtures.py
+!scripts/build_rust_extension.sh
 
 # Rust / Cargo build artifacts
 /target/
@@ -223,3 +224,11 @@ headroom-managed/
 
 # uv lockfile: regenerated locally; not committed
 uv.lock
+
+# Rust extension `.so` symlinks placed by `scripts/build_rust_extension.sh`
+# into the `headroom/` package dir for local development. The real binary
+# lives in `crates/headroom-py/python/headroom/`; this is the dev overlay
+# that lets `import headroom._core` resolve when the source `headroom/`
+# package shadows the maturin overlay on sys.path.
+/headroom/_core.*.so
+/headroom/_core.so

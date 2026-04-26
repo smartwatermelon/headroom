@@ -1,140 +1,27 @@
-"""Comprehensive tests for diff_compressor.py.
+"""Comprehensive tests for the public DiffCompressor API.
 
 Tests cover:
-1. Parsing of unified diff format
-2. Context line reduction
-3. Hunk selection and limiting
-4. Compression ratios
-5. Edge cases
+1. Context line reduction
+2. Hunk selection and limiting
+3. Compression ratios
+4. Edge cases
+5. Bug-fix regressions and routing-gap fixtures
+
+Stage 3b note (2026-04-25): the Python `DiffCompressor` implementation
+was retired in favor of the Rust-backed shim (`headroom._core` via PyO3).
+Tests that probed Python-only internals — `_parse_diff`, `_score_hunks`,
+the `DiffHunk` / `DiffFile` parser dataclasses — were removed because
+the Rust crate has its own parallel coverage in
+`crates/headroom-core/tests`. Public-API tests (anything calling
+`compressor.compress(...)`) are preserved unchanged: they exercise the
+Rust backend through the same import path and assert the same outputs.
 """
 
 from headroom.transforms.diff_compressor import (
     DiffCompressionResult,
     DiffCompressor,
     DiffCompressorConfig,
-    DiffFile,
-    DiffHunk,
 )
-
-
-class TestDiffParsing:
-    """Tests for parsing unified diff format."""
-
-    def test_parse_simple_diff(self):
-        """Simple single-file diff is parsed correctly."""
-        content = """diff --git a/src/main.py b/src/main.py
---- a/src/main.py
-+++ b/src/main.py
-@@ -10,6 +10,7 @@ def main():
-     print("hello")
-+    print("world")
-     return 0
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 1
-        assert diff_files[0].header == "diff --git a/src/main.py b/src/main.py"
-        assert diff_files[0].old_file == "--- a/src/main.py"
-        assert diff_files[0].new_file == "+++ b/src/main.py"
-        assert len(diff_files[0].hunks) == 1
-        assert diff_files[0].hunks[0].additions == 1
-        assert diff_files[0].hunks[0].deletions == 0
-
-    def test_parse_multi_file_diff(self):
-        """Multi-file diff is parsed into separate DiffFile objects."""
-        content = """diff --git a/file1.py b/file1.py
---- a/file1.py
-+++ b/file1.py
-@@ -1,3 +1,4 @@
- line1
-+added line
- line2
-diff --git a/file2.py b/file2.py
---- a/file2.py
-+++ b/file2.py
-@@ -5,4 +5,3 @@
- keep
--removed
- keep2
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 2
-        assert "file1.py" in diff_files[0].header
-        assert "file2.py" in diff_files[1].header
-        assert diff_files[0].hunks[0].additions == 1
-        assert diff_files[0].hunks[0].deletions == 0
-        assert diff_files[1].hunks[0].additions == 0
-        assert diff_files[1].hunks[0].deletions == 1
-
-    def test_parse_multi_hunk_file(self):
-        """File with multiple hunks is parsed correctly."""
-        content = """diff --git a/src/utils.py b/src/utils.py
---- a/src/utils.py
-+++ b/src/utils.py
-@@ -10,4 +10,5 @@ def helper():
-     pass
-+    # added comment
-     return True
-@@ -50,3 +51,4 @@ def other():
-     x = 1
-+    y = 2
-     return x
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 1
-        assert len(diff_files[0].hunks) == 2
-        assert diff_files[0].total_additions == 2
-
-    def test_parse_new_file(self):
-        """New file diff is detected."""
-        content = """diff --git a/newfile.py b/newfile.py
-new file mode 100644
---- /dev/null
-+++ b/newfile.py
-@@ -0,0 +1,3 @@
-+def new_func():
-+    pass
-+    return None
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 1
-        assert diff_files[0].is_new_file is True
-        assert diff_files[0].hunks[0].additions == 3
-
-    def test_parse_deleted_file(self):
-        """Deleted file diff is detected."""
-        content = """diff --git a/oldfile.py b/oldfile.py
-deleted file mode 100644
---- a/oldfile.py
-+++ /dev/null
-@@ -1,2 +0,0 @@
--def old_func():
--    pass
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 1
-        assert diff_files[0].is_deleted_file is True
-        assert diff_files[0].hunks[0].deletions == 2
-
-    def test_parse_binary_file(self):
-        """Binary file diff is detected."""
-        content = """diff --git a/image.png b/image.png
-Binary files a/image.png and b/image.png differ
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-
-        assert len(diff_files) == 1
-        assert diff_files[0].is_binary is True
 
 
 class TestContextReduction:
@@ -336,58 +223,6 @@ class TestCompressionResult:
         assert result.tokens_saved_estimate == 900
 
 
-class TestHunkScoring:
-    """Tests for context-aware hunk scoring."""
-
-    def test_score_by_context_keywords(self):
-        """Hunks containing context keywords get higher scores."""
-        content = """diff --git a/file.py b/file.py
---- a/file.py
-+++ b/file.py
-@@ -1,3 +1,4 @@
- normal context
-+normal change
- more context
-@@ -10,3 +11,4 @@
- error handling
-+fix the bug here
- return result
-"""
-        compressor = DiffCompressor()
-        _, diff_files = compressor._parse_diff(content.split("\n"))
-        compressor._score_hunks(diff_files, "fix error bug")
-
-        # Second hunk should have higher score (contains "fix" and "bug")
-        assert len(diff_files[0].hunks) == 2
-        assert diff_files[0].hunks[1].score > diff_files[0].hunks[0].score
-
-    def test_score_priority_patterns(self):
-        """Hunks with priority patterns (error, security) score higher."""
-        compressor = DiffCompressor()
-
-        hunk_normal = DiffHunk(
-            header="@@ -1,1 +1,2 @@",
-            lines=["+normal change"],
-            additions=1,
-        )
-        hunk_error = DiffHunk(
-            header="@@ -10,1 +10,2 @@",
-            lines=["+fix critical error"],
-            additions=1,
-        )
-
-        diff_file = DiffFile(
-            header="diff --git a/f.py b/f.py",
-            old_file="--- a/f.py",
-            new_file="+++ b/f.py",
-            hunks=[hunk_normal, hunk_error],
-        )
-
-        compressor._score_hunks([diff_file], "")
-
-        assert hunk_error.score > hunk_normal.score
-
-
 class TestSmallDiffPassthrough:
     """Tests for small diff passthrough behavior."""
 
@@ -537,56 +372,6 @@ class TestEdgeCases:
 
         # Should not crash
         assert result.compressed is not None
-
-
-class TestDiffHunkDataclass:
-    """Tests for DiffHunk dataclass."""
-
-    def test_change_count_property(self):
-        """change_count returns sum of additions and deletions."""
-        hunk = DiffHunk(
-            header="@@ -1,5 +1,6 @@",
-            lines=["+a", "+b", "-c", " ctx"],
-            additions=2,
-            deletions=1,
-        )
-        assert hunk.change_count == 3
-
-    def test_default_values(self):
-        """DiffHunk default values are correct."""
-        hunk = DiffHunk(header="@@", lines=[])
-        assert hunk.additions == 0
-        assert hunk.deletions == 0
-        assert hunk.context_lines == 0
-        assert hunk.score == 0.0
-
-
-class TestDiffFileDataclass:
-    """Tests for DiffFile dataclass."""
-
-    def test_total_additions_property(self):
-        """total_additions sums across all hunks."""
-        hunk1 = DiffHunk(header="@@", lines=[], additions=3)
-        hunk2 = DiffHunk(header="@@", lines=[], additions=5)
-        diff_file = DiffFile(
-            header="diff --git",
-            old_file="---",
-            new_file="+++",
-            hunks=[hunk1, hunk2],
-        )
-        assert diff_file.total_additions == 8
-
-    def test_total_deletions_property(self):
-        """total_deletions sums across all hunks."""
-        hunk1 = DiffHunk(header="@@", lines=[], deletions=2)
-        hunk2 = DiffHunk(header="@@", lines=[], deletions=4)
-        diff_file = DiffFile(
-            header="diff --git",
-            old_file="---",
-            new_file="+++",
-            hunks=[hunk1, hunk2],
-        )
-        assert diff_file.total_deletions == 6
 
 
 class TestConfigOptions:
