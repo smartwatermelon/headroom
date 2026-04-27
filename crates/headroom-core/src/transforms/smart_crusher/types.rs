@@ -123,10 +123,29 @@ impl CrushabilityAnalysis {
 /// Complete analysis of an array.
 ///
 /// Mirrors `ArrayAnalysis` at `smart_crusher.py:887-897`. `field_stats`
-/// uses `BTreeMap` for deterministic iteration order (Python's `dict`
-/// preserves insertion order; `BTreeMap` gives us a stable sorted-by-key
-/// order, which is fine for the parity fixtures because the analyzer
-/// builds the map by iterating sorted keys).
+/// and `constant_fields` use `BTreeMap` for sorted-by-key iteration.
+///
+/// # Sort vs insertion order — known parity nuance
+///
+/// Python's `dict` preserves insertion order, and `_analyze_field` is
+/// called once per key as it appears in `items[0].keys()` (i.e., JSON
+/// parse order). With `serde_json/preserve_order` enabled at the
+/// workspace level, `serde_json::Map` is an `IndexMap` and parse order
+/// matches Python.
+///
+/// `BTreeMap` here gives sorted-key iteration — which differs from
+/// Python's parse-order `dict`. This matters only if downstream code
+/// observes the iteration order of `field_stats` (e.g., when emitting
+/// debug output, picking a "first" field, or computing strategy
+/// strings that include field names).
+///
+/// During the analyzer port (Stage 3c.1 commit 2), we'll either:
+///   1. Switch this to `IndexMap` if any code path observes order, OR
+///   2. Document that Python's order-sensitive paths get rewritten to
+///      iterate sorted, then mirror that in Rust.
+///
+/// Tracked in the design doc at
+/// `~/Desktop/SmartCrusher-Architecture-Improvements.md`.
 #[derive(Debug, Clone)]
 pub struct ArrayAnalysis {
     pub item_count: usize,

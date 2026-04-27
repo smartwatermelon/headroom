@@ -173,10 +173,21 @@ mod tests {
 
     #[test]
     fn bool_with_number_is_mixed_not_bool_or_number() {
-        // Python's `[True, False, 1]` matches `types <= {bool, int}` BUT
-        // fails `all(isinstance(i, bool))`, so falls through to NUMBER_ARRAY
-        // check which has `not has_bool` — fails. Then nested check fails.
-        // Final: MIXED_ARRAY. Same here.
+        // Python's `[True, False, 1]` walks like this:
+        //   types == {bool, int} (because bool is an int subclass)
+        //   has_bool = True
+        //   `types <= {bool, int}` is True, so the bool-array gate is
+        //   considered, but the inner `all(isinstance(i, bool))` check
+        //   is False (because of the `1`), so does NOT return BOOL_ARRAY.
+        //   `types == {dict}` False. `types == {str}` False.
+        //   `types <= {int, float} and not has_bool` — has_bool is True,
+        //   so the number-array gate fails too. `types == {list}` False.
+        //   Falls through to MIXED_ARRAY.
+        //
+        // Rust matches by side effect of separate `Bool`/`Number` enum
+        // variants: the bool-array gate fails because `has_number` is
+        // True; the number-array gate fails because `has_bool` is True.
+        // Final: MIXED_ARRAY. Same outcome via different code path.
         let items = vec![json!(true), json!(false), json!(1)];
         assert_eq!(classify_array(&items), ArrayType::MixedArray);
     }

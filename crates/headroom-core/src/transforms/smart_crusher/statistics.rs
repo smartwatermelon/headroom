@@ -82,6 +82,53 @@ pub fn calculate_string_entropy(s: &str) -> f64 {
     }
 }
 
+/// Parse a string the way Python's built-in `int()` does for plain
+/// integer literals. Used by `detect_sequential_pattern` to mirror
+/// `int(v)` behavior exactly.
+///
+/// Python's `int()` accepts:
+///   - leading/trailing ASCII whitespace (stripped)
+///   - leading sign (`+` or `-`)
+///   - PEP 515 underscore digit separators (e.g. `"3_000"` → `3000`)
+///
+/// Rust's `str::parse::<i64>()` rejects all of those. If we used the
+/// raw `parse`, real-world payloads with `"  5  "` or `"+5"` would
+/// silently disagree with Python on whether the field is "numeric",
+/// which changes sequential classification and breaks fixtures.
+///
+/// We deliberately do NOT support Python's other `int()` features
+/// (base prefixes like `"0x10"`, scientific notation via `int(float(s))`,
+/// etc.) because the Python `_detect_sequential_pattern` call site
+/// uses the default-base `int()` overload — those paths are
+/// unreachable.
+fn python_int_parse(s: &str) -> Option<i64> {
+    // Python: `int()` strips ASCII whitespace from both ends.
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Python: drop PEP 515 underscores between digits. The implementation
+    // is more careful than this (rejects leading/trailing/double underscores),
+    // but for our use-case any string with valid digits + underscore separators
+    // is what we want to accept. Edge cases like `"_5_"` will fail the
+    // i64::parse call below, matching Python's behavior of rejecting them.
+    let cleaned: String = if trimmed.contains('_') {
+        // Reject patterns Python rejects: leading/trailing underscore,
+        // double underscores. Otherwise strip them out.
+        let bytes = trimmed.as_bytes();
+        let starts_or_ends = bytes[0] == b'_'
+            || *bytes.last().unwrap() == b'_'
+            || trimmed.contains("__");
+        if starts_or_ends {
+            return None;
+        }
+        trimmed.replace('_', "")
+    } else {
+        trimmed.to_string()
+    };
+    cleaned.parse::<i64>().ok()
+}
+
 /// Detect if numeric values form a sequential pattern (like IDs:
 /// 1, 2, 3, ...).
 ///
@@ -136,9 +183,10 @@ pub fn detect_sequential_pattern(values: &[Value], check_order: bool) -> bool {
             }
             Value::String(s) => {
                 // Python: `try: nums.append(int(v))`. `int("3.14")` raises
-                // in Python, so we mirror by trying integer parse first and
-                // only succeeding for pure-integer strings.
-                if let Ok(parsed) = s.parse::<i64>() {
+                // and Rust's plain `parse::<i64>` differs from `int()` on
+                // edges like leading whitespace and PEP 515 underscores.
+                // `python_int_parse` mirrors Python exactly — see fn doc.
+                if let Some(parsed) = python_int_parse(s) {
                     nums.push(parsed as f64);
                     // BUG #2 fix: do NOT set had_non_string_numeric.
                     // If we later find this is the ONLY source of numeric
@@ -370,6 +418,113 @@ mod tests {
     #[test]
     fn sequential_floats_with_unit_step() {
         let v: Vec<Value> = (1..=10).map(|i| json!(i as f64)).collect();
+        assert!(detect_sequential_pattern(&v, true));
+    }
+
+    #[test]
+    fn sequential_fractional_unit_step() {
+        // Floats with non-integer values but constant unit step. avg_diff
+        // = 1.0, all diffs in [0.5, 2.0], should be sequential. (Suggestion
+        // S6 in code review — pins float arithmetic doesn't drift.)
+        let v: Vec<Value> = vec![
+            json!(1.5),
+            json!(2.5),
+            json!(3.5),
+            json!(4.5),
+            json!(5.5),
+        ];
+        assert!(detect_sequential_pattern(&v, true));
+    }
+
+    #[test]
+    fn bug2_all_unparseable_strings_returns_false() {
+        // S3 in code review: explicit test for the all-strings case where
+        // none parse. Falls out of `nums.len() < 5` already, but pinning
+        // the behavior protects against future refactors.
+        let v: Vec<Value> = vec![
+            json!("abc"),
+            json!("def"),
+            json!("ghi"),
+            json!("jkl"),
+            json!("mno"),
+        ];
+        assert!(!detect_sequential_pattern(&v, true));
+    }
+
+    #[test]
+    fn bug2_single_int_among_strings_still_detects() {
+        // S3 in code review: validates that the BUG #2 gate fires on
+        // "ANY non-string numeric", not "majority". One real int among
+        // string-encoded numerics should be enough to count as sequential.
+        let v: Vec<Value> = vec![
+            json!("001"),
+            json!("002"),
+            json!(3), // <-- the unambiguous numeric
+            json!("004"),
+            json!("005"),
+            json!("006"),
+        ];
+        assert!(detect_sequential_pattern(&v, true));
+    }
+
+    // ---------- python_int_parse ----------
+
+    #[test]
+    fn python_int_parse_basic() {
+        assert_eq!(python_int_parse("5"), Some(5));
+        assert_eq!(python_int_parse("-5"), Some(-5));
+        assert_eq!(python_int_parse("+5"), Some(5));
+    }
+
+    #[test]
+    fn python_int_parse_strips_whitespace() {
+        // Python: `int("  5  ") == 5`. Rust's plain parse fails on this.
+        assert_eq!(python_int_parse("  5  "), Some(5));
+        assert_eq!(python_int_parse("\t-3\n"), Some(-3));
+    }
+
+    #[test]
+    fn python_int_parse_underscores() {
+        // PEP 515 — Python: `int("3_000") == 3000`.
+        assert_eq!(python_int_parse("3_000"), Some(3000));
+        assert_eq!(python_int_parse("1_000_000"), Some(1_000_000));
+    }
+
+    #[test]
+    fn python_int_parse_underscore_edge_cases_rejected() {
+        // Python rejects these (raises ValueError); we mirror by
+        // returning None.
+        assert_eq!(python_int_parse("_5"), None);
+        assert_eq!(python_int_parse("5_"), None);
+        assert_eq!(python_int_parse("3__000"), None);
+    }
+
+    #[test]
+    fn python_int_parse_rejects_floats() {
+        // Python: `int("3.14")` raises. Mirror by returning None.
+        assert_eq!(python_int_parse("3.14"), None);
+    }
+
+    #[test]
+    fn python_int_parse_rejects_non_numeric() {
+        assert_eq!(python_int_parse("abc"), None);
+        assert_eq!(python_int_parse(""), None);
+        assert_eq!(python_int_parse("   "), None);
+    }
+
+    #[test]
+    fn sequential_with_whitespace_padded_strings_via_python_int_parse() {
+        // I1 fix in code review: real fixtures may carry whitespace-padded
+        // numeric strings. With the python_int_parse helper, mixed real-int
+        // + whitespace-padded-string fields still detect correctly.
+        let v: Vec<Value> = vec![
+            json!(1),
+            json!("  2  "),
+            json!(3),
+            json!(" 4 "),
+            json!(5),
+            json!(6),
+        ];
         assert!(detect_sequential_pattern(&v, true));
     }
 }

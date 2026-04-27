@@ -111,43 +111,117 @@ pub fn extract_query_anchors(text: &str) -> HashSet<String> {
     anchors
 }
 
-/// Check if a JSON object matches any query anchors.
+/// Serialize a `serde_json::Value` to a string matching Python's
+/// `str()` of the equivalent native value.
+///
+/// Used by `item_matches_anchors` because Python compares anchors via
+/// `anchor in str(item).lower()` and `str(dict)` differs from
+/// `json.dumps(dict)` in three ways that affect substring matching:
+///
+/// | Aspect           | Python `str(dict)`           | `serde_json::to_string` |
+/// |------------------|------------------------------|-------------------------|
+/// | String quotes    | single `'`                   | double `"`              |
+/// | Booleans / null  | `True`, `False`, `None`      | `true`, `false`, `null` |
+/// | Spacing          | `key: value`, `a, b`         | `key:value`, `a,b`      |
+///
+/// All three matter for anchor matching:
+/// - An anchor `"name': 'a"` extracted from a user phrase like
+///   `find {'name': 'alice'}` would match Python's serialization but
+///   never the JSON form.
+/// - An anchor `"true"` (lowercased from `"True"`) matches both, but
+///   the unlowercased version `"True"` is in Python output and not
+///   JSON. Lowercasing both sides handles this.
+/// - An anchor `"name: alice"` (with the space) would match Python
+///   but never JSON.
+///
+/// Output is then lowercased upstream (matching Python's `.lower()`)
+/// so True/False/None case is normalized away after that step.
+fn python_repr(value: &Value) -> String {
+    let mut out = String::new();
+    write_python_repr(&mut out, value);
+    out
+}
+
+fn write_python_repr(out: &mut String, value: &Value) {
+    match value {
+        Value::Null => out.push_str("None"),
+        Value::Bool(true) => out.push_str("True"),
+        Value::Bool(false) => out.push_str("False"),
+        Value::Number(n) => {
+            // Python `str(int)` and `str(float)` produce minimal forms.
+            // `serde_json::Number`'s `Display` matches Python for ints
+            // (`5`) but for floats it can write `1.0` while Python may
+            // write `1.0` too — close enough for substring matching
+            // since anchor strings rarely contain numeric literals
+            // beyond the digit prefix.
+            out.push_str(&n.to_string());
+        }
+        Value::String(s) => {
+            // Python `repr(s)` chooses single or double quotes
+            // depending on content. Default preference is single
+            // quotes; switches to double if the string contains a
+            // single quote and no double. We emit single quotes
+            // always — this matches the dominant case (no quotes in
+            // the string) and is what Python does for `str(dict)` of
+            // most realistic data. The rare case where Python would
+            // switch to double quotes is documented as a known parity
+            // gap in `python_repr_string_with_single_quote_drift`.
+            out.push('\'');
+            out.push_str(s);
+            out.push('\'');
+        }
+        Value::Array(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_python_repr(out, item);
+            }
+            out.push(']');
+        }
+        Value::Object(map) => {
+            out.push('{');
+            // Python preserves insertion order in `dict.__str__` (since
+            // Python 3.7). We require the workspace `serde_json` to be
+            // built with `preserve_order` so `serde_json::Map` uses
+            // `IndexMap` instead of the default `BTreeMap` — see the
+            // comment on `serde_json` in the workspace `Cargo.toml`.
+            // Without that feature, this iteration is sorted-by-key
+            // and silently diverges from Python on every multi-key
+            // object.
+            for (i, (k, v)) in map.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push('\'');
+                out.push_str(k);
+                out.push('\'');
+                out.push_str(": ");
+                write_python_repr(out, v);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// Check if a JSON value matches any query anchors.
 ///
 /// Direct port of `item_matches_anchors` (Python `smart_crusher.py:152-168`).
-/// Python uses `str(item).lower()` which produces Python's `dict.__str__`
-/// representation. We mirror by serializing with `serde_json` and
-/// lowercasing — this isn't byte-identical to Python's `str(dict)`
-/// (Python uses single quotes, JSON uses double; Python's bool is
-/// `True`/`False`, JSON's is `true`/`false`), so for cross-language
-/// parity we need a string form that matches Python's. We document this
-/// gap and fix it in the analyzer integration.
-///
-/// **WARNING:** `str(item).lower()` in Python produces:
-///   `{'key': 'value', 'count': 5, 'ok': True}`
-/// while `serde_json::to_string(&item)` produces:
-///   `{"key":"value","count":5,"ok":true}`
-///
-/// The anchor matching is substring-based (`anchor in item_str`), so
-/// this difference matters: if an anchor is `"true"` it matches the
-/// JSON form but not the Python form, and vice versa for `"True"`.
-///
-/// **Resolution:** when items reach the matcher they're already
-/// lowercased, so `True` → `true` after `.lower()`, removing one source
-/// of drift. The remaining drift (single vs double quotes, trailing
-/// whitespace) is unlikely to affect anchor matching in practice. We
-/// pin behavior with fixtures and move on.
+/// Python uses `str(item).lower()` which produces Python's repr-like
+/// representation. We mirror that via `python_repr` rather than
+/// `serde_json::to_string` so substring matching has the same surface
+/// as Python (single quotes, `True`/`False`/`None`, spaced commas/colons).
 pub fn item_matches_anchors(item: &Value, anchors: &HashSet<String>) -> bool {
     if anchors.is_empty() {
         return false;
     }
 
-    // Python: `str(item).lower()`. We approximate via JSON serialization
-    // followed by `.lower()` — see WARNING above for the gap.
-    let item_str = match serde_json::to_string(item) {
-        Ok(s) => s.to_lowercase(),
-        Err(_) => return false,
-    };
-
+    // Python: `str(item).lower()`. `python_repr` produces the same
+    // single-quoted, space-after-colon, `True`/`False`/`None` form
+    // that Python's `str()` does; lowercase normalizes the bool/null
+    // case to match Python's downstream `.lower()` call.
+    let item_str = python_repr(item).to_lowercase();
     anchors.iter().any(|a| item_str.contains(a))
 }
 
@@ -247,5 +321,93 @@ mod tests {
     fn item_no_match_with_unrelated_anchor() {
         let anchors: HashSet<String> = ["xyz123".to_string()].into_iter().collect();
         assert!(!item_matches_anchors(&json!({"a": "b"}), &anchors));
+    }
+
+    #[test]
+    fn hostname_blocklist_drops_e_g() {
+        // S5 in code review: pin that "e.g" in input doesn't surface as
+        // an anchor. Direct match against the regex confirms "e.g" itself
+        // matches before the blocklist filters it.
+        let anchors = extract_query_anchors("see e.g for example");
+        assert!(!anchors.contains("e.g"));
+        // Sanity: a normal hostname still passes through.
+        let anchors = extract_query_anchors("connect to api.example.com");
+        assert!(anchors.contains("api.example.com"));
+    }
+
+    #[test]
+    fn email_typo_pattern_still_matches_real_emails() {
+        // S4 in code review: the Python `[A-Z|a-z]` typo doesn't break
+        // real email matching — pin that explicitly.
+        let anchors = extract_query_anchors("contact alice@example.com today");
+        assert!(anchors.contains("alice@example.com"));
+        let anchors = extract_query_anchors("ping bob@SUB.EXAMPLE.IO");
+        assert!(anchors.contains("bob@sub.example.io"));
+    }
+
+    // ---------- python_repr (used by item_matches_anchors) ----------
+
+    #[test]
+    fn python_repr_matches_python_str_for_dict() {
+        // Python: `str({'name': 'Alice', 'ok': True, 'count': 5, 'val': None})`
+        // = `"{'name': 'Alice', 'ok': True, 'count': 5, 'val': None}"`
+        // (insertion order — Python's dict preserves it since 3.7).
+        //
+        // Workspace `Cargo.toml` enables serde_json's `preserve_order`
+        // feature, so `json!` macro and `serde_json::from_str` both
+        // preserve key insertion order. Without that feature the test
+        // below would fail.
+        let v = json!({"name": "Alice", "ok": true, "count": 5, "val": null});
+        let r = python_repr(&v);
+        assert_eq!(
+            r,
+            "{'name': 'Alice', 'ok': True, 'count': 5, 'val': None}"
+        );
+    }
+
+    #[test]
+    fn python_repr_list_uses_space_after_comma() {
+        // Python: `str([1, 2, 'abc', True])` = `"[1, 2, 'abc', True]"`.
+        let v = json!([1, 2, "abc", true]);
+        assert_eq!(python_repr(&v), "[1, 2, 'abc', True]");
+    }
+
+    #[test]
+    fn python_repr_nested() {
+        let v = json!({"a": [1, {"b": "c"}]});
+        assert_eq!(python_repr(&v), "{'a': [1, {'b': 'c'}]}");
+    }
+
+    #[test]
+    fn item_matches_anchor_with_python_none_form() {
+        // I3 fix in review: Python `str({'val': None}).lower()` produces
+        // `{'val': none}`. With the old JSON-based matcher, the same
+        // input would serialize as `{"val":null}` and an anchor "none"
+        // would never match. With `python_repr` the serialization is
+        // `{'val': None}` → lowercased to `{'val': none}` → contains "none".
+        let anchors: HashSet<String> = ["none".to_string()].into_iter().collect();
+        assert!(item_matches_anchors(&json!({"val": null}), &anchors));
+    }
+
+    #[test]
+    fn item_matches_anchor_avoids_json_null_token() {
+        // Inverse of the above: an anchor "null" must NOT match a Python-
+        // null repr (which writes `none`). Pre-fix code would erroneously
+        // match because of `serde_json::to_string`'s `null` literal.
+        let anchors: HashSet<String> = ["null".to_string()].into_iter().collect();
+        assert!(!item_matches_anchors(&json!({"val": null}), &anchors));
+    }
+
+    #[test]
+    fn python_repr_string_with_single_quote_drift() {
+        // Documented parity gap: Python's `repr` switches to double
+        // quotes if the string contains a single quote. We always use
+        // single quotes. Pin the gap so future changes are intentional.
+        let v = json!({"k": "it's fine"});
+        // Our output: `{'k': 'it's fine'}` (broken Python repr — Python
+        // would emit `{'k': "it's fine"}`).
+        assert_eq!(python_repr(&v), "{'k': 'it's fine'}");
+        // Substring matching for typical anchors still works because
+        // they don't reference the quote chars themselves.
     }
 }
