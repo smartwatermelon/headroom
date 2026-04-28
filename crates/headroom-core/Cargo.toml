@@ -29,6 +29,11 @@ md-5 = "0.10"
 # `sha2` for `_hash_field_name` in smart_crusher (SHA256 truncated to 16
 # hex chars). Python uses `hashlib.sha256` so we need byte-exact parity.
 sha2 = "0.10"
+# `dashmap` for the CCR storage backend. Concurrent HashMap with sharded
+# locking — distinct keys hashed to different shards never contend, so
+# multi-worker proxy load doesn't queue on a single Mutex. Lock-free
+# reads inside each shard via RwLock semantics.
+dashmap = "6"
 # `regex` is already a transitive dep of tokenizers; depend on it directly so
 # our hunk-header parser and priority-pattern matcher have a stable surface.
 regex = "1"
@@ -56,4 +61,8 @@ criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
 name = "tokenizer"
+harness = false
+
+[[bench]]
+name = "ccr_store"
 harness = false

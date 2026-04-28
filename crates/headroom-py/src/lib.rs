@@ -384,11 +384,18 @@ impl PyDiffCompressor {
 
     /// `compress(content: str, context: str = "") -> DiffCompressionResult`.
     /// Argument order and keyword names match the Python implementation.
+    ///
+    /// Releases the GIL across the Rust compress call so concurrent
+    /// Python threads (uvicorn workers, asyncio tasks) can keep
+    /// running while we hash + parse + filter the diff. The
+    /// `&str` inputs are copied to owned `String`s first because
+    /// PyO3 ties their lifetime to the GIL hold.
     #[pyo3(signature = (content, context = ""))]
-    fn compress(&self, content: &str, context: &str) -> PyDiffCompressionResult {
-        PyDiffCompressionResult {
-            inner: self.inner.compress(content, context),
-        }
+    fn compress(&self, py: Python<'_>, content: &str, context: &str) -> PyDiffCompressionResult {
+        let content = content.to_string();
+        let context = context.to_string();
+        let inner = py.allow_threads(|| self.inner.compress(&content, &context));
+        PyDiffCompressionResult { inner }
     }
 
     /// `compress_with_stats(content, context="") -> (result, stats)`.
@@ -398,10 +405,14 @@ impl PyDiffCompressor {
     #[pyo3(signature = (content, context = ""))]
     fn compress_with_stats(
         &self,
+        py: Python<'_>,
         content: &str,
         context: &str,
     ) -> (PyDiffCompressionResult, PyDiffCompressorStats) {
-        let (result, stats) = self.inner.compress_with_stats(content, context);
+        let content = content.to_string();
+        let context = context.to_string();
+        let (result, stats) =
+            py.allow_threads(|| self.inner.compress_with_stats(&content, &context));
         (
             PyDiffCompressionResult { inner: result },
             PyDiffCompressorStats { inner: stats },
@@ -644,20 +655,36 @@ impl PySmartCrusher {
 
     /// `crush(content, query="", bias=1.0) -> CrushResult`. Argument
     /// order and keyword names mirror the Python implementation.
+    ///
+    /// Releases the GIL across the Rust crush call. Concurrent Python
+    /// threads in the proxy keep running during the JSON parse +
+    /// recursive process_value + per-array compression work. `&str`
+    /// inputs are copied to owned `String`s up-front since PyO3 ties
+    /// their lifetime to the GIL hold.
     #[pyo3(signature = (content, query = "", bias = 1.0))]
-    fn crush(&self, content: &str, query: &str, bias: f64) -> PyCrushResult {
-        PyCrushResult {
-            inner: self.inner.crush(content, query, bias),
-        }
+    fn crush(&self, py: Python<'_>, content: &str, query: &str, bias: f64) -> PyCrushResult {
+        let content = content.to_string();
+        let query = query.to_string();
+        let inner = py.allow_threads(|| self.inner.crush(&content, &query, bias));
+        PyCrushResult { inner }
     }
 
     /// `smart_crush_content(content, query="", bias=1.0) -> (str, bool, str)`.
     /// Mirrors Python's `_smart_crush_content` — used by
     /// `smart_crush_tool_output` convenience function and direct
-    /// callers that want the tuple form.
+    /// callers that want the tuple form. Releases the GIL across the
+    /// compute (same rationale as `crush`).
     #[pyo3(signature = (content, query = "", bias = 1.0))]
-    fn smart_crush_content(&self, content: &str, query: &str, bias: f64) -> (String, bool, String) {
-        self.inner.smart_crush_content(content, query, bias)
+    fn smart_crush_content(
+        &self,
+        py: Python<'_>,
+        content: &str,
+        query: &str,
+        bias: f64,
+    ) -> (String, bool, String) {
+        let content = content.to_string();
+        let query = query.to_string();
+        py.allow_threads(|| self.inner.smart_crush_content(&content, &query, bias))
     }
 
     /// Crush a JSON array directly and return the structured result.
@@ -684,25 +711,39 @@ impl PySmartCrusher {
         query: &str,
         bias: f64,
     ) -> Bound<'py, PyDict> {
-        // Errors here surface as Python `RuntimeError` via pyo3's panic
-        // catcher — callers are expected to pass valid array-shaped JSON.
-        let parsed: serde_json::Value = serde_json::from_str(items_json)
-            .unwrap_or_else(|e| panic!("items_json must be JSON: {e}"));
-        let items = match parsed {
-            serde_json::Value::Array(a) => a,
-            other => panic!("items_json must be a JSON array, got {}", type_name(&other)),
-        };
-        let result = self.inner.crush_array(&items, query, bias);
-        let kept_json = serde_json::to_string(&serde_json::Value::Array(result.items))
-            .expect("serialize kept items");
+        // GIL-release pattern: own the inputs, do all heavy compute
+        // (JSON parse, crush, re-serialize) without the GIL, then
+        // re-acquire to build the PyDict from the owned outputs.
+        let items_json = items_json.to_string();
+        let query = query.to_string();
+        let (kept_json, ccr_hash, dropped_summary, strategy_info, compacted, compaction_kind) = py
+            .allow_threads(|| {
+                let parsed: serde_json::Value = serde_json::from_str(&items_json)
+                    .unwrap_or_else(|e| panic!("items_json must be JSON: {e}"));
+                let items = match parsed {
+                    serde_json::Value::Array(a) => a,
+                    other => panic!("items_json must be a JSON array, got {}", type_name(&other)),
+                };
+                let result = self.inner.crush_array(&items, &query, bias);
+                let kept_json = serde_json::to_string(&serde_json::Value::Array(result.items))
+                    .expect("serialize kept items");
+                (
+                    kept_json,
+                    result.ccr_hash,
+                    result.dropped_summary,
+                    result.strategy_info,
+                    result.compacted,
+                    result.compaction_kind,
+                )
+            });
         build_crush_array_dict(
             py,
             kept_json,
-            result.ccr_hash,
-            result.dropped_summary,
-            result.strategy_info,
-            result.compacted,
-            result.compaction_kind,
+            ccr_hash,
+            dropped_summary,
+            strategy_info,
+            compacted,
+            compaction_kind,
         )
     }
 
@@ -719,15 +760,20 @@ impl PySmartCrusher {
     /// pass without per-array lossy crushing — useful when the caller
     /// wants document-shape compaction (forms, configs, mixed records)
     /// rather than statistical row drop.
-    fn compact_document_json(&self, doc_json: &str) -> String {
-        let parsed: serde_json::Value =
-            serde_json::from_str(doc_json).unwrap_or_else(|e| panic!("doc_json must be JSON: {e}"));
-        let mut dc = DocumentCompactor::new();
-        if let Some(store) = self.inner.ccr_store() {
-            dc = dc.with_ccr_store(store.clone());
-        }
-        let out = dc.compact(parsed);
-        serde_json::to_string(&out).expect("serialize compacted document")
+    fn compact_document_json(&self, py: Python<'_>, doc_json: &str) -> String {
+        // Heavy: JSON parse + recursive walker + tabular compaction +
+        // re-serialize. None of it touches Python; release the GIL.
+        let doc_json = doc_json.to_string();
+        py.allow_threads(|| {
+            let parsed: serde_json::Value = serde_json::from_str(&doc_json)
+                .unwrap_or_else(|e| panic!("doc_json must be JSON: {e}"));
+            let mut dc = DocumentCompactor::new();
+            if let Some(store) = self.inner.ccr_store() {
+                dc = dc.with_ccr_store(store.clone());
+            }
+            let out = dc.compact(parsed);
+            serde_json::to_string(&out).expect("serialize compacted document")
+        })
     }
 
     /// Look up an original payload by CCR hash.
