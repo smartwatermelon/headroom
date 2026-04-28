@@ -142,6 +142,7 @@ class SmartCrusher(Transform):
         scorer: Any = None,
         ccr_config: CCRConfig | None = None,
         with_compaction: bool = True,
+        observer: Any = None,
     ):
         # Hard import — no Python fallback. If the wheel is missing the
         # caller must build it (scripts/build_rust_extension.sh) or
@@ -157,6 +158,12 @@ class SmartCrusher(Transform):
         cfg = config or SmartCrusherConfig()
         self.config = cfg
         self._with_compaction = with_compaction
+        # `observer`: see `headroom.transforms.observability`. The
+        # legacy proxy pipeline uses SmartCrusher.apply() directly
+        # (no ContentRouter); without an observer here, those
+        # compressions would be invisible to per-strategy metrics —
+        # exactly the silent-regression class we're guarding against.
+        self._observer = observer
 
         # CCR config is preserved on `self` for callers that read it
         # back (`headroom.proxy.server` does), but the Rust port doesn't
@@ -334,6 +341,24 @@ class SmartCrusher(Transform):
 
         return " ".join(context_parts)
 
+    def _notify_observer(self, original_tokens: int, compressed_tokens: int) -> None:
+        """Forward a compression event to the configured
+        `CompressionObserver` (see `headroom.transforms.observability`).
+        No-op when no observer is set; swallows observer exceptions at
+        debug level so a buggy metrics impl doesn't break the
+        compression that just succeeded.
+        """
+        if self._observer is None:
+            return
+        try:
+            self._observer.record_compression(
+                strategy="smart_crusher",
+                original_tokens=original_tokens,
+                compressed_tokens=compressed_tokens,
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("CompressionObserver raised (non-fatal): %s", e)
+
     def apply(
         self,
         messages: list[dict[str, Any]],
@@ -377,6 +402,7 @@ class SmartCrusher(Transform):
                             markers_inserted.append(marker)
                             if info:
                                 transforms_applied.append(f"smart:{info}")
+                            self._notify_observer(tokens, tokenizer.count_text(crushed))
 
             # Anthropic-style: content is a list of blocks; each tool_result
             # block has a string content field of its own.
@@ -402,6 +428,7 @@ class SmartCrusher(Transform):
                         markers_inserted.append(marker)
                         if info:
                             transforms_applied.append(f"smart:{info}")
+                        self._notify_observer(tokens, tokenizer.count_text(crushed))
 
         if crushed_count > 0:
             transforms_applied.insert(0, f"smart_crush:{crushed_count}")

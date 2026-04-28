@@ -236,6 +236,22 @@ class HeadroomProxy(
         self.anthropic_provider = self.provider_runtime.pipeline_provider("anthropic")
         self.openai_provider = self.provider_runtime.pipeline_provider("openai")
 
+        # `metrics` is hoisted ahead of transform construction so the
+        # transforms can receive `self.metrics` as their compression
+        # observer at __init__ time. The forcing function for catching
+        # silent strategy regressions: per-strategy counters increment
+        # only when wired up here, so the wiring is mandatory, not
+        # something we patch in later. (See `RUST_DEV.md` audit notes.)
+        self.cost_tracker = (
+            CostTracker(
+                budget_limit_usd=config.budget_limit_usd,
+                budget_period=config.budget_period,
+            )
+            if config.cost_tracking_enabled
+            else None
+        )
+        self.metrics = PrometheusMetrics(cost_tracker=self.cost_tracker)
+
         # Initialize transforms based on routing mode
         # Choose context manager: IntelligentContextManager (smart) or RollingWindow (legacy)
         context_manager: Transform  # Can be either IntelligentContextManager or RollingWindow
@@ -277,7 +293,7 @@ class HeadroomProxy(
                 router_config.protect_recent_reads_fraction = 0.3
             transforms = [
                 CacheAligner(CacheAlignerConfig(enabled=False)),
-                ContentRouter(router_config),
+                ContentRouter(router_config, observer=self.metrics),
                 context_manager,
             ]
             self._code_aware_status = "lazy" if config.code_aware_enabled else "disabled"
@@ -295,6 +311,7 @@ class HeadroomProxy(
                         enabled=config.ccr_inject_tool,
                         inject_retrieval_marker=config.ccr_inject_tool,  # Add CCR markers
                     ),
+                    observer=self.metrics,
                 ),
                 context_manager,
             ]
@@ -329,16 +346,9 @@ class HeadroomProxy(
             else None
         )
 
-        self.cost_tracker = (
-            CostTracker(
-                budget_limit_usd=config.budget_limit_usd,
-                budget_period=config.budget_period,
-            )
-            if config.cost_tracking_enabled
-            else None
-        )
-
-        self.metrics = PrometheusMetrics(cost_tracker=self.cost_tracker)
+        # `cost_tracker` and `metrics` were hoisted to before transforms so
+        # ContentRouter / SmartCrusher could take `self.metrics` as their
+        # compression observer at __init__ time.
 
         # Prefix cache tracking: freeze already-cached messages to avoid
         # invalidating the provider's prefix cache with our transforms

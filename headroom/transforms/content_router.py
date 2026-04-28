@@ -643,13 +643,26 @@ class ContentRouter(Transform):
 
     name: str = "content_router"
 
-    def __init__(self, config: ContentRouterConfig | None = None):
+    def __init__(
+        self,
+        config: ContentRouterConfig | None = None,
+        observer: Any = None,
+    ):
         """Initialize content router.
 
         Args:
             config: Router configuration. Uses defaults if None.
+            observer: Optional `CompressionObserver` (see
+                `headroom.transforms.observability`) called once per
+                routing decision after `compress()` finishes. The
+                proxy's `PrometheusMetrics` is the production
+                implementation — it increments per-strategy counters
+                so silent regressions become visible. `None` disables
+                observation; pick one explicitly per the no-fallback
+                rule in the audit doc.
         """
         self.config = config or ContentRouterConfig()
+        self._observer = observer
 
         # Lazy-loaded compressors
         self._code_compressor: Any = None
@@ -766,20 +779,46 @@ class ContentRouter(Transform):
             RouterCompressionResult with compressed content and routing metadata.
         """
         if not content or not content.strip():
-            return RouterCompressionResult(
+            result = RouterCompressionResult(
                 compressed=content,
                 original=content,
                 strategy_used=CompressionStrategy.PASSTHROUGH,
                 routing_log=[],
             )
-
-        # Determine strategy from content analysis
-        strategy = self._determine_strategy(content)
-
-        if strategy == CompressionStrategy.MIXED:
-            return self._compress_mixed(content, context, question, bias=bias)
         else:
-            return self._compress_pure(content, strategy, context, question, bias=bias)
+            # Determine strategy from content analysis
+            strategy = self._determine_strategy(content)
+
+            if strategy == CompressionStrategy.MIXED:
+                result = self._compress_mixed(content, context, question, bias=bias)
+            else:
+                result = self._compress_pure(content, strategy, context, question, bias=bias)
+
+        # One observer call per routing decision; the observer is the
+        # forcing function for catching strategy-level regressions.
+        # Empty routing_log (passthrough fast path) → no calls.
+        self._observe(result)
+        return result
+
+    def _observe(self, result: RouterCompressionResult) -> None:
+        """Forward each `RoutingDecision` in `result.routing_log` to the
+        configured `CompressionObserver`. No-op when no observer is set.
+
+        Observers MUST NOT raise per the protocol contract; if one does
+        anyway, swallow at debug level. Compression already succeeded;
+        a buggy observer must not turn a 200 into a 500.
+        """
+        if self._observer is None:
+            return
+        for d in result.routing_log:
+            try:
+                self._observer.record_compression(
+                    strategy=d.strategy.value,
+                    original_tokens=d.original_tokens,
+                    compressed_tokens=d.compressed_tokens,
+                )
+            except Exception as e:  # pragma: no cover - defensive
+                logger.debug("CompressionObserver raised (non-fatal): %s", e)
 
     def _determine_strategy(self, content: str) -> CompressionStrategy:
         """Determine the compression strategy from content analysis.
