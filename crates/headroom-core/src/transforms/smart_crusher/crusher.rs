@@ -667,11 +667,15 @@ impl SmartCrusher {
         // serves the original back via retrieval tool calls.
         let dropped_count = items.len().saturating_sub(result.len());
         let (ccr_hash, dropped_summary) = if dropped_count > 0 {
-            let h = hash_array_for_ccr(items);
+            // Serialize the original array exactly ONCE. The hash is
+            // taken over those bytes, and (if a store is configured) the
+            // same bytes get stored — eliminating a redundant tree clone
+            // (`items.to_vec()`) and a redundant `serde_json::to_string`
+            // pass that the previous version did per dropped array.
+            let canonical = canonical_array_json(items);
+            let h = hash_canonical(&canonical);
             let marker = format!("<<ccr:{h} {dropped_count}_rows_offloaded>>");
             if let Some(store) = &self.ccr_store {
-                let canonical =
-                    serde_json::to_string(&Value::Array(items.to_vec())).unwrap_or_default();
                 store.put(&h, &canonical);
             }
             (Some(h), marker)
@@ -898,20 +902,37 @@ fn estimate_array_bytes(item_strings: &[String]) -> usize {
     payload + separators + 2
 }
 
-/// 12-char SHA-256 hex prefix of the canonical JSON serialization of
-/// `[v0, v1, ...]`. Used as the CCR retrieval key when the lossy path
-/// drops rows. Same input → same hash, so the runtime can cache the
-/// original by-hash and retrieval is deterministic.
-fn hash_array_for_ccr(items: &[Value]) -> String {
+/// Serialize `[v0, v1, ...]` once into the canonical JSON form used by
+/// the CCR retrieval contract. `serde_json` writes a slice of `Value` as
+/// the same bytes it would write for `Value::Array(items.to_vec())`, so
+/// we skip the array-wrapper allocation and the deep tree clone it
+/// requires. Used by both the hash (input) and the store payload (write).
+fn canonical_array_json(items: &[Value]) -> String {
+    serde_json::to_string(items).unwrap_or_default()
+}
+
+/// 12-char SHA-256 hex prefix of an already-serialized canonical JSON
+/// string. Caller is responsible for producing the canonical form via
+/// [`canonical_array_json`] (or another byte-equal serializer) — the
+/// hash is over the bytes, so a stable serializer is the contract.
+fn hash_canonical(canonical: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    let canonical = serde_json::to_string(&Value::Array(items.to_vec())).unwrap_or_default();
     h.update(canonical.as_bytes());
     h.finalize()
         .iter()
         .take(6)
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// Convenience: canonical-serialize `items` and hash the result. Kept
+/// for sites (e.g. tests) that don't also need the canonical bytes for
+/// storage. Production lossy path inlines `canonical_array_json` +
+/// `hash_canonical` so the bytes are reused for the store payload.
+#[cfg(test)]
+fn hash_array_for_ccr(items: &[Value]) -> String {
+    hash_canonical(&canonical_array_json(items))
 }
 
 // ─── PR5 walker-integration helpers (string handling) ──────────────────────
