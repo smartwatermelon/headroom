@@ -16,8 +16,8 @@ distinguish a real pipeline failure from a thread-pool starvation timeout:
 from __future__ import annotations
 
 import asyncio
-import logging
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -104,39 +104,32 @@ def test_request_id_plumbed_to_pipeline_apply() -> None:
         assert captured["request_id"]  # non-empty
 
 
-class _ListHandler(logging.Handler):
-    def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
-        self.records: list[logging.LogRecord] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
-
-
 def test_optimization_failure_logs_exception_type() -> None:
     """When pipeline.apply raises, the warning must include the
     exception type — issue #296 reported ``Optimization failed:`` with
-    an empty message because asyncio.TimeoutError has no str repr."""
-    # The headroom root logger sets propagate=False (see proxy/helpers.py)
-    # so caplog cannot see records via root propagation. Attach a dedicated
-    # handler to the proxy logger for this test.
-    proxy_logger = logging.getLogger("headroom.proxy")
-    handler = _ListHandler()
-    proxy_logger.addHandler(handler)
-    try:
-        with _make_proxy_client() as client:
-            proxy = client.app.state.proxy
+    an empty message because asyncio.TimeoutError has no str repr.
 
-            def _raise_timeout(**kwargs):
-                raise asyncio.TimeoutError()
+    We patch the handler module's ``logger.warning`` directly rather than
+    relying on logging propagation: the headroom logger sets
+    ``propagate=False`` (see proxy/helpers.py) and per-test mutations of
+    handler chains have proven brittle in CI.
+    """
+    from headroom.proxy.handlers import anthropic as anth_handler
 
-            proxy.anthropic_pipeline.apply = _raise_timeout
+    with _make_proxy_client() as client:
+        proxy = client.app.state.proxy
 
-            async def _fake_retry(method, url, headers, body, stream=False):  # noqa: ANN001
-                return _ok_response("msg_diag_2")
+        def _raise_timeout(**kwargs):
+            raise asyncio.TimeoutError()
 
-            proxy._retry_request = _fake_retry
+        proxy.anthropic_pipeline.apply = _raise_timeout
 
+        async def _fake_retry(method, url, headers, body, stream=False):  # noqa: ANN001
+            return _ok_response("msg_diag_2")
+
+        proxy._retry_request = _fake_retry
+
+        with patch.object(anth_handler.logger, "warning") as mock_warning:
             response = client.post(
                 "/v1/messages",
                 headers={"x-api-key": "test-key", "anthropic-version": "2023-06-01"},
@@ -147,12 +140,14 @@ def test_optimization_failure_logs_exception_type() -> None:
                 },
             )
 
-            assert response.status_code == 200, response.text
-            warnings = [
-                r.getMessage() for r in handler.records if "Optimization failed" in r.getMessage()
-            ]
-            assert warnings, "expected an 'Optimization failed' warning"
-            msg = warnings[0]
-            assert "TimeoutError" in msg, f"expected exception type in warning, got: {msg!r}"
-    finally:
-        proxy_logger.removeHandler(handler)
+        assert response.status_code == 200, response.text
+        warning_msgs = [
+            call.args[0] for call in mock_warning.call_args_list
+            if call.args and "Optimization failed" in str(call.args[0])
+        ]
+        assert warning_msgs, (
+            f"expected an 'Optimization failed' warning, got calls: "
+            f"{mock_warning.call_args_list!r}"
+        )
+        msg = warning_msgs[0]
+        assert "TimeoutError" in msg, f"expected exception type in warning, got: {msg!r}"
