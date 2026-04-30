@@ -231,7 +231,7 @@ class TrafficLearner:
         agent_type: str = "unknown",
         max_history: int = 20,
         dedup_window: int = 100,
-        min_evidence: int = 2,
+        min_evidence: int = 5,
     ) -> None:
         """Initialize the traffic learner.
 
@@ -398,10 +398,9 @@ class TrafficLearner:
         if not patterns:
             return
 
-        # Evidence gate: at shutdown accept single-evidence rows; during live
-        # flushes require 2+ to suppress one-off noise.
-        min_evidence = 1 if self._stopping else 2
-        patterns = [p for p in patterns if p.evidence_count >= min_evidence]
+        # Evidence gate: require self._min_evidence corroborations to flush,
+        # including at shutdown. One-shot singletons are noise, not signal.
+        patterns = [p for p in patterns if p.evidence_count >= self._min_evidence]
         if not patterns:
             return
 
