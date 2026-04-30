@@ -15,10 +15,13 @@ from headroom.memory.traffic_learner import (
     PatternCategory,
     TrafficLearner,
     _classify_error,
+    _commands_related_as_retry,
+    _drop_contradictions,
     _is_error,
     _load_persisted_patterns_from_sqlite,
     _normalize_bash_for_hash,
     _parse_iso_timestamp,
+    _paths_related_as_typo,
     _patterns_to_recommendations,
     _project_for_pattern,
     _refine_error_recovery,
@@ -54,6 +57,104 @@ class TestErrorClassification:
         assert not _is_error("All tests passed")
         assert not _is_error("")
         assert not _is_error("short")
+
+
+# =============================================================================
+# Recovery-pair relatedness heuristics
+# =============================================================================
+
+
+class TestPathsRelatedAsTypo:
+    def test_identical_basename_different_dir_is_typo(self):
+        # Same file in two locations — common path-typo case.
+        assert _paths_related_as_typo("/a/state.rs", "/b/state.rs")
+
+    def test_close_basename_is_typo(self):
+        assert _paths_related_as_typo("/a/staet.rs", "/a/state.rs")
+        assert _paths_related_as_typo("/a/App.tsx", "/a/app.tsx")
+
+    def test_unrelated_files_in_same_dir_rejected(self):
+        # The motivating bug: state.rs and lib.rs are unrelated files,
+        # not typos, and should never be paired into a recovery rule.
+        assert not _paths_related_as_typo(
+            "/src-tauri/src/state.rs", "/src-tauri/src/lib.rs"
+        )
+        assert not _paths_related_as_typo("/x/models.py", "/x/views.py")
+
+    def test_empty_or_equal_paths_rejected(self):
+        assert not _paths_related_as_typo("", "/a/x")
+        assert not _paths_related_as_typo("/a/x", "")
+        assert not _paths_related_as_typo("/a/x", "/a/x")
+
+
+class TestCommandsRelatedAsRetry:
+    def test_python_to_python3_is_retry(self):
+        assert _commands_related_as_retry("python test.py", "python3 test.py")
+
+    def test_path_prefixed_binary_is_retry(self):
+        assert _commands_related_as_retry("ruff check .", ".venv/bin/ruff check .")
+
+    def test_extra_flag_is_retry(self):
+        assert _commands_related_as_retry(
+            "cargo build", "cargo build --release"
+        )
+
+    def test_different_binaries_rejected(self):
+        assert not _commands_related_as_retry("grep -n foo bar.rs", "find . -name foo")
+
+    def test_same_binary_unrelated_args_rejected(self):
+        # The motivating bug: two grep calls sharing nothing but the
+        # binary should not pair up. Different needles, different files.
+        failed = (
+            'grep -nE "smoke|HEADROOM_SMOKE_TEST_TIMEOUT|smoke_test" '
+            "/Users/x/src-tauri/src/tool_manager.rs 2>&1 | head -20"
+        )
+        success = (
+            'grep -nE "fn hf_hub_cache_dir|HF_HOME|HUGGINGFACE_HUB_CACHE" '
+            "/Users/x/src-tauri/src/state.rs 2>&1 | head -10"
+        )
+        assert not _commands_related_as_retry(failed, success)
+
+    def test_empty_or_equal_commands_rejected(self):
+        assert not _commands_related_as_retry("", "ls")
+        assert not _commands_related_as_retry("ls", "")
+        assert not _commands_related_as_retry("ls", "ls")
+
+
+class TestDropContradictions:
+    def _read_recovery(self, failed: str, success: str) -> ExtractedPattern:
+        return ExtractedPattern(
+            category=PatternCategory.ERROR_RECOVERY,
+            content=f"File `{failed}` does not exist. The correct path is `{success}`.",
+            importance=0.7,
+            entity_refs=[success],
+            metadata={"error_category": "file_not_found", "failed_path": failed},
+            evidence_count=5,
+        )
+
+    def test_drops_inverse_pairs(self):
+        a_to_b = self._read_recovery("/x/a.rs", "/x/b.rs")
+        b_to_a = self._read_recovery("/x/b.rs", "/x/a.rs")
+        keep = self._read_recovery("/x/c.rs", "/x/d.rs")
+        cleaned = _drop_contradictions([a_to_b, b_to_a, keep])
+        assert keep in cleaned
+        assert a_to_b not in cleaned
+        assert b_to_a not in cleaned
+
+    def test_passthrough_when_no_inverse(self):
+        a_to_b = self._read_recovery("/x/a.rs", "/x/b.rs")
+        cleaned = _drop_contradictions([a_to_b])
+        assert cleaned == [a_to_b]
+
+    def test_only_filters_error_recovery_category(self):
+        env_pattern = ExtractedPattern(
+            category=PatternCategory.ENVIRONMENT,
+            content="File `x` does not exist. The correct path is `y`.",  # text alone
+            importance=0.5,
+            evidence_count=5,
+        )
+        cleaned = _drop_contradictions([env_pattern])
+        assert cleaned == [env_pattern]
 
 
 # =============================================================================
